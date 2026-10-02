@@ -16,8 +16,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import "strings"
-
 // ConfirmState is the pure state machine behind the reset confirmation prompt.
 // It accumulates the operator's typed Root CN and reports when a line is
 // submitted. It holds no terminal or transport state, so it is fully
@@ -48,48 +46,76 @@ func (c *ConfirmState) Key(b byte) (submit bool) {
 	}
 }
 
+// Wording of the reset screens.
+const (
+	resetWarning   = "WARNING: this DESTROYS this CA."
+	resetPrompt    = "Type the Root CA CN to confirm:"
+	resetMismatch  = "Does not match. Nothing was erased."
+	resetBack      = "Back to status in 5s"
+	resettingLine1 = "Resetting. Erasing key material"
+	resettingLine2 = "and rebooting into setup..."
+)
+
+// resetFooter is the confirm footer's key hints; gap separates the two.
+func resetFooter(gap string) segLine {
+	return segLine{{"Enter", sgrBoldWhite}, {" confirm" + gap, sgrDim}, {"Esc/^C", sgrBoldWhite}, {" cancel", sgrDim}}
+}
+
+// resetScreen is the confirmation screen, with the mismatch lines when
+// mismatch is set. The typed line shows its tail when it is wider than the
+// screen, so the operator always sees what they typed last.
+func resetScreen(rootCN, typed, ver string, cols int, mismatch bool) screen {
+	entry := "> " + typed
+	if !mismatch {
+		entry += "_"
+	}
+	if room := cols - 4; len(entry) > room && room > 2 {
+		entry = "> " + entry[len(entry)-(room-2):]
+	}
+	body := []item{
+		center(seg{resetWarning, sgrBoldRed}), blank(),
+		center(seg{"The signing key material is erased", ""}),
+		center(seg{"and the node reboots to be re-set up.", ""}), blank(),
+		center(seg{resetPrompt, ""}), center(seg{rootCN, sgrBoldYellow}), blank(),
+		center(seg{entry, sgrBoldWhite}),
+	}
+	compact := []segLine{
+		{{resetWarning, sgrBoldRed}}, {{resetPrompt, ""}}, {{rootCN, sgrBoldYellow}}, {{entry, sgrBoldWhite}},
+	}
+	if mismatch {
+		body = append(body, center(seg{resetMismatch, sgrBoldYellow}), center(seg{resetBack, sgrDim}))
+		compact = append(compact, segLine{{resetMismatch, sgrBoldYellow}}, segLine{{resetBack, sgrDim}})
+	}
+	return screen{
+		tag: "RESET", tagColor: sgrBoldRed, body: body, compact: compact,
+		footL: resetFooter("    "), compactFoot: resetFooter("  "), footR: segLine{{versionTag(ver), sgrDim}},
+	}
+}
+
 // RenderResetConfirm returns the full-screen destructive-reset confirmation,
 // sized to cols x rows: an ANSI clear+home, a border frame, and a centered
 // prominent warning that the reset erases the CA, the exact Root CN the operator
 // must retype, and the buffer typed so far. Esc or ^C aborts back to the
 // dashboard, so the footer names both. Sizes below the frame minimum fall back
 // to a compact render.
-func RenderResetConfirm(rootCN, typed string, cols, rows int) string {
-	if cols < minCols || rows < minRows {
-		var b strings.Builder
-		b.WriteString(clearHome)
-		b.WriteString(sgr(sgrBoldRed, "WARNING: reset DESTROYS this CA") + "\n")
-		b.WriteString("Type the Root CA CN to confirm:\n")
-		b.WriteString(rootCN + "\n")
-		b.WriteString("> " + typed + "\n")
-		b.WriteString("Enter confirm   Esc/^C cancel\n")
-		return b.String()
-	}
-	body := []segLine{
-		{{"WARNING: this DESTROYS this CA.", sgrBoldRed}},
-		text("The signing key material is erased"),
-		text("and the node reboots to be re-set up."),
-		text(""),
-		text("Type the Root CA CN to confirm:"),
-		{{rootCN, sgrYellow}},
-		text(""),
-		{{"> " + typed, ""}},
-	}
-	return frame(cols, rows, "RESET", body, footerSpec{left: "Enter confirm    Esc/^C cancel"}, "")
+func RenderResetConfirm(rootCN, typed, version string, cols, rows int) string {
+	return resetScreen(rootCN, typed, version, cols, false).render(cols, rows)
+}
+
+// RenderResetMismatch returns the confirmation screen after the typed CN did
+// not match: it shows what was typed and says that nothing was erased before
+// the console returns to the dashboard.
+func RenderResetMismatch(rootCN, typed, version string, cols, rows int) string {
+	return resetScreen(rootCN, typed, version, cols, true).render(cols, rows)
 }
 
 // RenderResetting returns the full-screen shown once a Reset call succeeds. The
 // node wipes and reboots, so the socket connection drops moments later.
-func RenderResetting(cols, rows int) string {
-	if cols < minCols || rows < minRows {
-		var b strings.Builder
-		b.WriteString(clearHome)
-		b.WriteString("Resetting. Erasing key material and rebooting into setup...\n")
-		return b.String()
-	}
-	body := []segLine{
-		{{"Resetting. Erasing key material", sgrYellow}},
-		text("and rebooting into setup..."),
-	}
-	return frame(cols, rows, "RESET", body, footerSpec{left: "RESET IN PROGRESS"}, "")
+func RenderResetting(version string, cols, rows int) string {
+	return screen{
+		tag: "RESET", tagColor: sgrBoldRed,
+		body:    []item{center(seg{resettingLine1, sgrBoldYellow}), center(seg{resettingLine2, sgrBoldYellow})},
+		compact: []segLine{{{resettingLine1, sgrBoldYellow}}, {{resettingLine2, sgrBoldYellow}}},
+		footL:   segLine{{"RESET IN PROGRESS", sgrBoldYellow}}, footR: segLine{{versionTag(version), sgrDim}},
+	}.render(cols, rows)
 }

@@ -1,0 +1,24 @@
+.- CryptOS PKI --------------------------------- INTERMEDIATE -.
+|                      .-----. | .-----.                       |
+|                      |       |       |                       |
+|                      |       |       |                       |
+|                      |    .--+--.    |                       |
+|                      |    |#####|    |                       |
+|                      |    |#####|    |                       |
+|                      |    '-----'    |                       |
+|                      |               |                       |
+|                      '---------------'                       |
+|                                                              |
+|    Intermediate   Example Intermediate CA G1                 |
+|    Issuer         Example Root CA G1                         |
+|    Node           ESTABLISHED                                |
+|    Fleet Manager  connected                                  |
+|    TPM            UNAVAILABLE                                |
+|    Uptime         12d 07h 41m                                |
+|    Mgmt SHA-256   3F2A 9C41 07BE D5A0 6E13 C8F7 2B94 E01D    |
+|                   5A6C 83F2 0D47 B9E5 1C08 7FA3 D26B 4E90    |
+|    Mgmt cert      CA-signed, trust the CA                    |
+|                                                              |
+|                                                              |
+|  ^R  reset (destroys this CA)                        v0.1.0  |
+'--------------------------------------------------------------'

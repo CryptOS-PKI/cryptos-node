@@ -22,37 +22,6 @@ import (
 	"time"
 )
 
-// clearHome resets the screen: clear (2J) then move the cursor home (H).
-const clearHome = "\x1b[2J\x1b[H"
-
-// ANSI SGR codes. Only the 16 standard colors are used because the framebuffer
-// console (fbcon) renders that palette; 256-color and truecolor are avoided.
-const (
-	sgrReset     = "\x1b[0m"
-	sgrDim       = "\x1b[2m"
-	sgrBoldCyan  = "\x1b[1;36m"
-	sgrBoldGreen = "\x1b[1;32m"
-	sgrYellow    = "\x1b[33m"
-	sgrBoldRed   = "\x1b[1;31m"
-)
-
-// sgr wraps s in an SGR color code and a reset. It is the single place color is
-// applied, so all layout math elsewhere runs on plain (uncolored) text and the
-// zero-width escapes never affect a computed width.
-func sgr(code, s string) string {
-	if code == "" {
-		return s
-	}
-	return code + s + sgrReset
-}
-
-// Minimum size the full-screen frame needs before we fall back to a compact
-// render. Below this the border and centered content cannot fit cleanly.
-const (
-	minCols = 40
-	minRows = 12
-)
-
 // FleetState is the node's Fleet Manager relationship, shown on the dashboard.
 type FleetState int
 
@@ -137,106 +106,119 @@ func HumanUptime(d time.Duration) string {
 }
 
 // statusColor picks the value color for a health string: green for the healthy
-// markers, yellow for the not-healthy ones, and no color otherwise.
+// markers, yellow for the ones that need attention, and no color for normal
+// states such as "not enrolled" or a TPM-less key tier.
 func statusColor(s string) string {
 	switch strings.ToUpper(s) {
 	case "ESTABLISHED", "CONNECTED", "SEALED", "OK":
 		return sgrBoldGreen
-	case "DISCONNECTED", "NOT ENROLLED", "UNAVAILABLE", "DEGRADED":
-		return sgrYellow
+	case "DISCONNECTED", "DEGRADED":
+		return sgrBoldYellow
 	default:
 		return ""
 	}
 }
 
-// seg is a piece of text paired with its color. A line is a sequence of segs;
-// its plain width is the sum of the segs' plain lengths, so centering and
-// padding math never counts the zero-width color escapes.
-type seg struct {
-	text  string
-	color string
-}
+// Wording shared by more than one screen.
+const (
+	resetHint        = "^R  reset (destroys this CA)"
+	compactResetHint = "^R reset"
+	degradedStatus   = "degraded (reconnecting)"
+	mgmtCASignedHint = "CA-signed, trust the CA"
+	mgmtSelfHint     = "self-signed, compare the fingerprint"
+	fingerprintLabel = "Mgmt SHA-256"
+	// The adoption flow asks the operator to compare the fingerprint twice:
+	// once in maintenance before the install, once after the installed
+	// node's first boot.
+	checkBeforeInstall = "check 1/2: compare with the web console"
+	checkAfterInstall  = "check 2/2: compare with the web console"
+)
 
-// segLine is one logical content line built from colored segments.
-type segLine []seg
-
-// plainLen returns the visible width of the line.
-func (l segLine) plainLen() int {
-	n := 0
-	for _, s := range l {
-		n += len(s.text)
-	}
-	return n
-}
-
-// colored renders the line with its color escapes.
-func (l segLine) colored() string {
-	var b strings.Builder
-	for _, s := range l {
-		b.WriteString(sgr(s.color, s.text))
-	}
-	return b.String()
-}
-
-// text builds a single-segment line with no color.
-func text(s string) segLine { return segLine{{s, ""}} }
-
-// labelValue builds a "label  value" line with a dim, fixed-width label column
-// and a colored value.
-func labelValue(label, value, valColor string) segLine {
-	return segLine{{fmt.Sprintf("%-14s ", label), sgrDim}, {value, valColor}}
-}
-
-// footerSpec is the footer's left hint and whether it is a destructive (red)
-// action; the right side is always the dim version tag.
-type footerSpec struct {
-	left   string
-	danger bool
-}
-
-// RenderDashboard returns a full-screen framed dashboard sized to cols x rows:
-// an ANSI clear + home prefix, a border spanning the whole console, and the
-// status content centered both horizontally and vertically inside the frame.
-// The maintenance and degraded variants are keyed off v.Maintenance and
-// v.Degraded; otherwise the serving frame is drawn. Sizes below the minimum
-// fall back to a compact render so the output never overflows or panics. Color
-// is applied over zero-width SGR escapes, so all layout math runs on plain text.
+// RenderDashboard returns the full-screen dashboard sized to cols x rows: an
+// ANSI clear + home prefix, then the framed screen for the view's state, or the
+// compact fallback when the console is smaller than the frame needs. Color is
+// applied over zero-width SGR escapes, so all layout math runs on plain text.
 func RenderDashboard(v View, cols, rows int) string {
-	if cols < minCols || rows < minRows {
-		return renderCompact(v)
-	}
-	body, foot, right, tag := dashboardParts(v, cols)
-	return frame(cols, rows, tag, body, foot, right)
+	return dashboardScreen(v).render(cols, rows)
 }
 
-// dashboardParts returns the centered body lines, footer, version tag, and
-// header tag for the current view variant.
-func dashboardParts(v View, cols int) (body []segLine, foot footerSpec, right, headerTag string) {
-	p := v.pendingIdentity()
-	switch {
+// dashboardScreen builds the screen for the view's state: a pending identity,
+// maintenance, degraded, or serving.
+func dashboardScreen(v View) screen {
+	ver := segLine{{version(v), sgrDim}}
+	reset := segLine{{resetHint, sgrBoldRed}}
+	compactReset := segLine{{compactResetHint, sgrBoldRed}}
+	switch p := v.pendingIdentity(); {
 	case p != nil:
-		body = append(p.lines(), mgmtLines(v, cols-2)...)
-		return body, footerSpec{left: p.footer()}, version(v), roleTag(v)
+		body := []item{center(seg{p.title, sgrBoldYellow}), center(seg{p.hint, ""})}
+		if v.MgmtFingerprint != "" {
+			body = append(append(body, blank()), fingerprintItems(v.MgmtFingerprint)...)
+			body = append(body, p.extra(v)...)
+		}
+		compact := []segLine{{{p.title, sgrBoldYellow}}, {{p.hint, ""}}}
+		compact = append(compact, compactFingerprint(v)...)
+		foot := segLine{{strings.ToUpper(p.title), sgrBoldYellow}}
+		return screen{tag: roleTag(v), body: body, compact: compact, footL: foot, footR: ver}
 	case v.Maintenance:
-		body = []segLine{
-			{{"Awaiting configuration", sgrYellow}},
-			text(""),
-			text("Run: cryptosctl config apply"),
+		run := []seg{{"Run: ", sgrDim}, {"cryptosctl config apply", sgrBoldWhite}}
+		body := []item{center(seg{"Awaiting configuration", sgrBoldYellow}), center(run...)}
+		if len(v.MgmtAddrs) > 0 {
+			body = append(body, blank())
+			for i, a := range v.MgmtAddrs {
+				body = append(body, field(firstLabel(i, "Address"), a, sgrBoldWhite))
+			}
 		}
-		if more := maintenanceLines(v, cols-2); len(more) > 0 {
-			body = append(append(body, text("")), alignLeft(more)...)
+		if v.MgmtFingerprint != "" {
+			body = append(append(body, blank()), fingerprintItems(v.MgmtFingerprint)...)
+			body = append(body, field("", checkBeforeInstall, sgrBoldYellow))
 		}
-		return body, footerSpec{left: "MAINTENANCE MODE"}, version(v), "MAINTENANCE"
+		compact := []segLine{{{"Awaiting configuration", sgrBoldYellow}}, run}
+		for i, a := range v.MgmtAddrs {
+			compact = append(compact, compactField(firstLabel(i, "IP"), a, sgrBoldWhite))
+		}
+		compact = append(compact, compactFingerprint(v)...)
+		foot := segLine{{"MAINTENANCE MODE", sgrBoldYellow}}
+		return screen{tag: "MAINTENANCE", tagColor: sgrBoldYellow, body: body, compact: compact, footL: foot, footR: ver}
 	case v.Degraded:
-		body = []segLine{
-			labelValue("Root CA", v.RootCN, ""),
-			text(""),
-			{{"degraded (reconnecting)", sgrYellow}},
+		body := []item{
+			field(caLabelFromRole(v.Role), v.RootCN, sgrBoldWhite),
+			field("Node", degradedStatus, sgrBoldYellow),
 		}
-		return body, footerSpec{left: "^R  reset (destroys this CA)", danger: true}, version(v), roleTag(v)
+		compact := []segLine{
+			compactField("CA", v.RootCN, sgrBoldWhite),
+			compactField("Node", degradedStatus, sgrBoldYellow),
+		}
+		return screen{tag: roleTag(v), body: body, compact: compact, footL: reset, compactFoot: compactReset, footR: ver}
 	default:
-		return fieldLines(v, cols-2), footerSpec{left: "^R  reset (destroys this CA)", danger: true}, version(v), roleTag(v)
+		fleet := fleetLabel(v.Fleet)
+		body := []item{
+			field(caLabelFromRole(v.Role), v.RootCN, sgrBoldWhite),
+			field("Issuer", v.Issuer, ""),
+			field("Node", v.NodeStatus, statusColor(v.NodeStatus)),
+			field("Fleet Manager", fleet, statusColor(fleet)),
+			field("TPM", v.TPM, statusColor(v.TPM)),
+			field("Uptime", HumanUptime(v.Uptime), ""),
+		}
+		if v.MgmtFingerprint != "" {
+			body = append(append(body, fingerprintItems(v.MgmtFingerprint)...), mgmtCertItem(v))
+		}
+		compact := []segLine{
+			compactField("CA", v.RootCN, sgrBoldWhite),
+			compactField("Node", v.NodeStatus, statusColor(v.NodeStatus)),
+			compactField("FM", fleet, statusColor(fleet)),
+			compactField("TPM", v.TPM, statusColor(v.TPM)),
+		}
+		compact = append(compact, compactFingerprint(v)...)
+		return screen{tag: roleTag(v), body: body, compact: compact, footL: reset, compactFoot: compactReset, footR: ver}
 	}
+}
+
+// firstLabel labels only the first of a stacked list of values.
+func firstLabel(i int, label string) string {
+	if i == 0 {
+		return label
+	}
+	return ""
 }
 
 // pendingScreen is the title and next-step hint for an installed node that has
@@ -245,18 +227,22 @@ func dashboardParts(v View, cols int) (body []segLine, foot footerSpec, right, h
 // pinning.
 type pendingScreen struct {
 	title, hint string
+	// check is the fingerprint check line shown while the certificate is
+	// self-signed; mgmtCert says whether the "Mgmt cert" line follows.
+	check    string
+	mgmtCert bool
 }
 
 var (
 	// awaitingCeremonyScreen: pin the management certificate, checked against
 	// this screen, then run the ceremony against it.
-	awaitingCeremonyScreen = pendingScreen{"Awaiting ceremony", "Fetch trust, then start the ceremony"}
+	awaitingCeremonyScreen = pendingScreen{"Awaiting ceremony", "Fetch trust, then start the ceremony", checkAfterInstall, true}
 	// awaitingParentScreen: pin the node, then fetch its CSR, have the parent
 	// sign it, and submit the chain back.
-	awaitingParentScreen = pendingScreen{"Awaiting parent certificate", "Fetch trust, then get the CSR signed"}
+	awaitingParentScreen = pendingScreen{"Awaiting parent certificate", "Fetch trust, then get the CSR signed", "", true}
 	// ceremonyInProgressScreen: the phase is not rolled back when a ceremony
 	// fails, so the hint also covers starting it again.
-	ceremonyInProgressScreen = pendingScreen{"Ceremony in progress", "Wait, or start it again if it failed"}
+	ceremonyInProgressScreen = pendingScreen{"Ceremony in progress", "Wait, or start it again if it failed", "", false}
 )
 
 // pendingIdentity returns the screen for the view's pre-identity state, or nil
@@ -274,122 +260,67 @@ func (v View) pendingIdentity() *pendingScreen {
 	}
 }
 
-// lines returns the status and hint lines shown above the management
-// fingerprint.
-func (p *pendingScreen) lines() []segLine {
-	return []segLine{
-		{{p.title, sgrYellow}},
-		text(""),
-		text(p.hint),
-		text(""),
+// extra returns the lines under the fingerprint: the check line while the
+// certificate is self-signed, then the "Mgmt cert" line.
+func (p *pendingScreen) extra(v View) []item {
+	var out []item
+	if p.check != "" && !v.MgmtCASigned {
+		out = append(out, field("", p.check, sgrBoldYellow))
 	}
-}
-
-// footer is the footer's left label: the title in capitals.
-func (p *pendingScreen) footer() string { return strings.ToUpper(p.title) }
-
-// fieldLines returns the centered serving status lines. The CA identity line is
-// labeled by role (Root CA / Intermediate CA / Issuing CA) and is followed by an
-// Issuer line naming the parent CA. width is the room each line has; it only
-// decides how the management fingerprint wraps.
-func fieldLines(v View, width int) []segLine {
-	lines := []segLine{
-		labelValue(caLabelFromRole(v.Role), v.RootCN, ""),
-		labelValue("Issuer", v.Issuer, ""),
-		labelValue("Node", v.NodeStatus, statusColor(v.NodeStatus)),
-		labelValue("Fleet Manager", fleetLabel(v.Fleet), statusColor(fleetLabel(v.Fleet))),
-		labelValue("TPM", v.TPM, statusColor(v.TPM)),
-		labelValue("Uptime", HumanUptime(v.Uptime), ""),
-	}
-	return append(lines, mgmtLines(v, width)...)
-}
-
-// labelWidth is the visible width of labelValue's label column.
-const labelWidth = 15
-
-// mgmtCASignedHint follows the fingerprint when the management certificate is
-// CA-signed.
-const mgmtCASignedHint = "CA-signed, trust the CA"
-
-// mgmtLines returns the management certificate lines: the fingerprint, then
-// the CA-signed marker when it applies.
-func mgmtLines(v View, width int) []segLine {
-	lines := fingerprintLines(v.MgmtFingerprint, width)
-	if len(lines) > 0 && v.MgmtCASigned {
-		lines = append(lines, labelValue("Mgmt cert", mgmtCASignedHint, ""))
-	}
-	return lines
-}
-
-// maintenanceLines returns the address and management certificate lines of
-// the maintenance screen: what an operator needs to reach the node and to
-// check the certificate it presents before trusting it.
-func maintenanceLines(v View, width int) []segLine {
-	return append(addressLines(v.MgmtAddrs), mgmtLines(v, width)...)
-}
-
-// alignLeft pads every line to the width of the widest so that, centered
-// one by one, the lines share a left edge and their label columns line up.
-func alignLeft(lines []segLine) []segLine {
-	w := 0
-	for _, l := range lines {
-		w = max(w, l.plainLen())
-	}
-	out := make([]segLine, len(lines))
-	for i, l := range lines {
-		out[i] = append(append(segLine{}, l...), seg{strings.Repeat(" ", w-l.plainLen()), ""})
+	if p.mgmtCert {
+		out = append(out, mgmtCertItem(v))
 	}
 	return out
 }
 
-// addressLines puts the first address beside the "Address" label and each
-// further one on its own line under it. IPv4 addresses always fit beside the
-// label at the minimum frame width.
-func addressLines(addrs []string) []segLine {
-	var lines []segLine
-	for i, a := range addrs {
-		if i == 0 {
-			lines = append(lines, labelValue("Address", a, ""))
-			continue
-		}
-		lines = append(lines, segLine{{strings.Repeat(" ", labelWidth) + a, ""}})
+// mgmtCertItem says how to trust the management certificate: trust the CA
+// that signed it, or compare the fingerprint of a self-signed one.
+func mgmtCertItem(v View) item {
+	if v.MgmtCASigned {
+		return field("Mgmt cert", mgmtCASignedHint, "")
 	}
-	return lines
+	return field("Mgmt cert", mgmtSelfHint, "")
 }
 
-// fingerprintLines wraps a grouped fingerprint under the "Mgmt SHA-256" label.
-// Eight groups per line when they fit beside the label, otherwise four; when
-// even four do not fit, the label takes its own line and the groups start at
-// the left edge.
-func fingerprintLines(fp string, width int) []segLine {
-	if fp == "" {
-		return nil
-	}
-	const label = "Mgmt SHA-256"
+// fingerprintItems lays a grouped fingerprint out under the "Mgmt SHA-256"
+// label, eight groups per line. A narrow frame wraps the value column, which
+// splits each line into two of four groups.
+func fingerprintItems(fp string) []item {
 	groups := strings.Fields(fp)
-	per := 8
-	if labelWidth+groupsWidth(per) > width {
-		per = 4
+	var out []item
+	for i := 0; i < len(groups); i += 8 {
+		chunk := strings.Join(groups[i:min(i+8, len(groups))], " ")
+		out = append(out, field(firstLabel(i, fingerprintLabel), chunk, sgrBoldWhite))
 	}
-	var lines []segLine
-	indent := strings.Repeat(" ", labelWidth)
-	if labelWidth+groupsWidth(per) > width {
-		lines = append(lines, segLine{{label, sgrDim}})
-		indent = ""
-	}
-	for i := 0; i < len(groups); i += per {
-		chunk := strings.Join(groups[i:min(i+per, len(groups))], " ")
-		if i == 0 && indent != "" {
-			lines = append(lines, labelValue(label, chunk, ""))
-			continue
-		}
-		lines = append(lines, segLine{{indent + chunk, ""}})
-	}
-	return lines
+	return out
 }
 
-// groupsWidth is the visible width of n space-separated 4-digit groups.
-func groupsWidth(n int) int { return n*5 - 1 }
+// compactLabelWidth is the label column of the compact screen.
+const compactLabelWidth = 6
+
+// compactField is a compact "label value" line.
+func compactField(label, value, color string) segLine {
+	return segLine{{fmt.Sprintf("%-*s", compactLabelWidth, label), sgrDim}, {value, color}}
+}
+
+// compactFingerprint is the fingerprint on the compact screen, four groups per
+// line under a short label, then the CA-signed marker when it applies.
+func compactFingerprint(v View) []segLine {
+	groups := strings.Fields(v.MgmtFingerprint)
+	var out []segLine
+	for i := 0; i < len(groups); i += 4 {
+		chunk := strings.Join(groups[i:min(i+4, len(groups))], " ")
+		if i == 0 {
+			out = append(out, compactField("SHA", chunk, sgrBoldWhite))
+			continue
+		}
+		out = append(out, segLine{spaces(compactLabelWidth), {chunk, sgrBoldWhite}})
+	}
+	if len(out) > 0 && v.MgmtCASigned {
+		out = append(out, segLine{{mgmtCASignedHint, ""}})
+	}
+	return out
+}
 
 // version renders the footer version tag. The build stamps a git-describe
 // version that already starts with "v", so the prefix is added only to a bare
@@ -414,171 +345,4 @@ func roleTag(v View) string {
 		return "NODE"
 	}
 	return v.Role
-}
-
-// frame assembles the full cols x rows screen: a top border with the wordmark
-// and a right-aligned tag, the shield banner and body centered vertically, a
-// footer row just above the bottom border, and cyan side bars on every interior
-// row. All widths are computed on plain text; color rides along per segment.
-func frame(cols, rows int, tag string, body []segLine, foot footerSpec, right string) string {
-	inner := cols - 2 // interior width between the side bars
-
-	// Content block = shield banner + blank + body lines.
-	var content []segLine
-	for _, bl := range bannerLines() {
-		content = append(content, segLine{{bl, sgrBoldCyan}})
-	}
-	content = append(content, text(""))
-	content = append(content, body...)
-
-	// Interior rows between the borders; the last holds the footer, and the
-	// content block is vertically centered in the rows above it.
-	interior := rows - 2
-	footerRow := interior - 1
-	top := (footerRow - len(content)) / 2
-	if top < 0 {
-		top = 0
-	}
-
-	lines := make([]string, 0, rows)
-	lines = append(lines, topBorder(cols, tag))
-	for i := 0; i < interior; i++ {
-		switch {
-		case i == footerRow:
-			lines = append(lines, wrapRow(footerLine(inner, foot, right), inner))
-		case i >= top && i-top < len(content):
-			lines = append(lines, wrapRow(centered(content[i-top], inner), inner))
-		default:
-			lines = append(lines, wrapRow(nil, inner))
-		}
-	}
-	lines = append(lines, bottomBorder(cols))
-	return clearHome + strings.Join(lines, "\n") + "\n"
-}
-
-// bannerLines returns the shield banner split into lines.
-func bannerLines() []string {
-	return strings.Split(strings.TrimRight(Banner(), "\n"), "\n")
-}
-
-// centered left-pads a line so its content is horizontally centered within
-// width; right padding is added by wrapRow.
-func centered(l segLine, width int) segLine {
-	pw := l.plainLen()
-	if pw >= width {
-		return l
-	}
-	left := (width - pw) / 2
-	if left <= 0 {
-		return l
-	}
-	return append(segLine{{strings.Repeat(" ", left), ""}}, l...)
-}
-
-// wrapRow renders an interior line inside cyan side bars, right-padding with
-// plain spaces so the total visible width is exactly cols (2 bars + inner).
-func wrapRow(l segLine, inner int) string {
-	pw := l.plainLen()
-	pad := inner - pw
-	if pad < 0 {
-		pad = 0
-	}
-	return bar() + l.colored() + strings.Repeat(" ", pad) + bar()
-}
-
-// bar is a cyan vertical border segment.
-func bar() string { return sgr(sgrBoldCyan, "|") }
-
-// footerLine builds the footer interior line: a left hint (red if destructive)
-// and a right-aligned dim version tag.
-func footerLine(inner int, foot footerSpec, right string) segLine {
-	leftColor := ""
-	if foot.danger {
-		leftColor = sgrBoldRed
-	}
-	left := "  " + foot.left
-	rightTxt := right + "  "
-	space := inner - len(left) - len(rightTxt)
-	if space < 1 {
-		// Not enough room for both; keep the left hint.
-		return segLine{{left, leftColor}}
-	}
-	return segLine{
-		{left, leftColor},
-		{strings.Repeat(" ", space), ""},
-		{rightTxt, sgrDim},
-	}
-}
-
-// topBorder builds the top rule: ".<space>CryptOS PKI<dashes>tag<space>."
-// spanning cols, drawn in bright cyan.
-func topBorder(cols int, tag string) string {
-	title := " CryptOS PKI "
-	tg := " " + tag + " "
-	dashes := cols - 2 - len(title) - len(tg)
-	var plain string
-	if dashes < 1 {
-		d := cols - 2 - len(title)
-		if d < 0 {
-			d = 0
-		}
-		plain = "." + clip(title+strings.Repeat("-", d), cols-2) + "."
-	} else {
-		plain = "." + title + strings.Repeat("-", dashes) + tg + "."
-	}
-	return sgr(sgrBoldCyan, plain)
-}
-
-// bottomBorder builds the bottom rule spanning cols, in bright cyan.
-func bottomBorder(cols int) string {
-	return sgr(sgrBoldCyan, "'"+strings.Repeat("-", cols-2)+"'")
-}
-
-// clip truncates s to at most width bytes.
-func clip(s string, width int) string {
-	if width < 0 {
-		return ""
-	}
-	if len(s) > width {
-		return s[:width]
-	}
-	return s
-}
-
-// renderCompact is the tiny-terminal fallback: a minimal, unframed status dump
-// that never overflows a small screen. It still colors status values.
-func renderCompact(v View) string {
-	var b strings.Builder
-	b.WriteString(clearHome)
-	p := v.pendingIdentity()
-	switch {
-	case p != nil:
-		b.WriteString(sgr(sgrBoldCyan, "CryptOS PKI") + " [" + roleTag(v) + "]\n")
-		b.WriteString(sgr(sgrYellow, p.title) + "\n")
-		b.WriteString(p.hint + "\n")
-		for _, l := range mgmtLines(v, 0) {
-			b.WriteString(l.colored() + "\n")
-		}
-		b.WriteString(p.footer() + " " + sgr(sgrDim, version(v)) + "\n")
-	case v.Maintenance:
-		b.WriteString(sgr(sgrBoldCyan, "CryptOS PKI") + " [" + sgr(sgrYellow, "MAINTENANCE") + "]\n")
-		b.WriteString(sgr(sgrYellow, "Awaiting configuration") + "\n")
-		b.WriteString("Run: cryptosctl config apply\n")
-		for _, l := range maintenanceLines(v, 0) {
-			b.WriteString(l.colored() + "\n")
-		}
-		b.WriteString("MAINTENANCE MODE " + sgr(sgrDim, version(v)) + "\n")
-	case v.Degraded:
-		b.WriteString(sgr(sgrBoldCyan, "CryptOS PKI") + " [" + roleTag(v) + "]\n")
-		b.WriteString("Root CA  " + v.RootCN + "\n")
-		b.WriteString(sgr(sgrYellow, "degraded (reconnecting)") + "\n")
-		b.WriteString(sgr(sgrBoldRed, "^R reset (destroys this CA)") + "  " + sgr(sgrDim, version(v)) + "\n")
-	default:
-		b.WriteString(sgr(sgrBoldCyan, "CryptOS PKI") + " [" + roleTag(v) + "]\n")
-		for _, l := range fieldLines(v, 0) {
-			b.WriteString(l.colored() + "\n")
-		}
-		b.WriteString(sgr(sgrBoldRed, "^R reset (destroys this CA)") + "  " + sgr(sgrDim, version(v)) + "\n")
-	}
-	return b.String()
 }

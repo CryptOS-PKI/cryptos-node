@@ -67,6 +67,10 @@ func withMgmtAddrs(snap snapFunc, addrs func() []string) snapFunc {
 	}
 }
 
+// mismatchHold is how long the reset mismatch screen stays up before the
+// console returns to the dashboard. The screen's wording names it.
+var mismatchHold = 5 * time.Second
+
 // resetFunc calls the node's Reset RPC with the operator-typed Root CN.
 type resetFunc func(ctx context.Context, confirmCN string) error
 
@@ -79,25 +83,32 @@ func run(ctx context.Context, snap snapFunc, out io.Writer, tick <-chan time.Tim
 // runConsole drives the console: it polls the node and redraws the dashboard on
 // every tick, and it handles keyboard input. In the serving state, Ctrl-R opens
 // the destructive reset confirmation; the operator retypes the Root CA CN and
-// presses Enter. Only an exact match calls resetFn; Esc or Ctrl-C aborts back
-// to the dashboard. keys and tick may be nil (a nil channel simply never
+// presses Enter. Only an exact match calls resetFn; a mismatch says nothing
+// was erased and returns to the dashboard after mismatchHold; Esc or Ctrl-C
+// aborts back to the dashboard. keys and tick may be nil (a nil channel simply never
 // fires), so tests can drive either path in isolation.
 func runConsole(ctx context.Context, snap snapFunc, resetFn resetFunc, out io.Writer, tick <-chan time.Time, keys <-chan byte, cols, rows int) {
 	// confirming holds the reset ceremony state, or nil on the dashboard.
 	var confirming *console.ConfirmState
 	// rootCN is the CN the last snapshot reported; the confirm compares against it.
 	var rootCN string
+	// ver is the node version the last snapshot reported, for the footers of
+	// the reset screens.
+	var ver string
 	// resetting latches once a Reset call succeeds so ticks stop redrawing over
 	// the "resetting" screen while the node reboots.
 	resetting := false
+	// mismatched fires when the mismatch screen has been up for mismatchHold;
+	// it is nil when that screen is not shown.
+	var mismatched <-chan time.Time
 
 	drawDashboard := func() {
 		v, _ := snap(ctx)
-		rootCN = v.RootCN
+		rootCN, ver = v.RootCN, v.Version
 		_, _ = io.WriteString(out, console.RenderDashboard(v, cols, rows))
 	}
 	drawConfirm := func() {
-		_, _ = io.WriteString(out, console.RenderResetConfirm(rootCN, confirming.Typed, cols, rows))
+		_, _ = io.WriteString(out, console.RenderResetConfirm(rootCN, confirming.Typed, ver, cols, rows))
 	}
 
 	drawDashboard()
@@ -106,8 +117,11 @@ func runConsole(ctx context.Context, snap snapFunc, resetFn resetFunc, out io.Wr
 		select {
 		case <-ctx.Done():
 			return
+		case <-mismatched:
+			mismatched = nil
+			drawDashboard()
 		case <-tick:
-			if resetting {
+			if resetting || mismatched != nil {
 				continue
 			}
 			if confirming == nil {
@@ -119,6 +133,13 @@ func runConsole(ctx context.Context, snap snapFunc, resetFn resetFunc, out io.Wr
 				continue
 			}
 			if resetting {
+				continue
+			}
+			if mismatched != nil {
+				if b == escKey || b == ctrlC {
+					mismatched = nil
+					drawDashboard()
+				}
 				continue
 			}
 			if confirming == nil {
@@ -140,7 +161,7 @@ func runConsole(ctx context.Context, snap snapFunc, resetFn resetFunc, out io.Wr
 				if confirming.Typed == rootCN {
 					if err := resetFn(ctx, confirming.Typed); err == nil {
 						resetting = true
-						_, _ = io.WriteString(out, console.RenderResetting(cols, rows))
+						_, _ = io.WriteString(out, console.RenderResetting(ver, cols, rows))
 					} else {
 						// Reset was refused or failed; leave the ceremony and
 						// return to the dashboard so the node keeps serving.
@@ -148,9 +169,11 @@ func runConsole(ctx context.Context, snap snapFunc, resetFn resetFunc, out io.Wr
 						drawDashboard()
 					}
 				} else {
-					// Mismatch: abandon the ceremony without calling Reset.
+					// Mismatch: abandon the ceremony without calling Reset,
+					// and say so before going back to the dashboard.
+					_, _ = io.WriteString(out, console.RenderResetMismatch(rootCN, confirming.Typed, ver, cols, rows))
 					confirming = nil
-					drawDashboard()
+					mismatched = time.After(mismatchHold)
 				}
 				continue
 			}

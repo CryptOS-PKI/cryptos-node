@@ -1,0 +1,11 @@
+CryptOS PKI [NODE]
+
+CA
+Node  degraded (reconnecting)
+
+
+
+
+
+
+^R reset                        v0.1.0

@@ -75,7 +75,7 @@ func TestRenderDashboardIssuer(t *testing.T) {
 		Fleet: console.FleetConnected,
 	}
 	plain := stripSGR(console.RenderDashboard(v, 64, 24))
-	for _, want := range []string{"Intermediate CA", "Issuer", "ACME Root CA G1"} {
+	for _, want := range []string{"Intermediate   ACME Issuing CA G1", "Issuer", "ACME Root CA G1"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("serving dashboard missing %q:\n%s", want, plain)
 		}

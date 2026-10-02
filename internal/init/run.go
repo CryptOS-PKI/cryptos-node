@@ -175,13 +175,13 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	bi := buildinfo.Get()
 	log.Printf("cryptos %s (commit %s, built %s)", bi.Version, bi.Commit, bi.BuildDate)
 
-	// Branded boot: open the console and render the shield once. Each bring-up
+	// Branded boot: open the console and render the mark and version once. Each bring-up
 	// step below marks its status. Best-effort: if the console cannot be opened,
 	// step is a no-op and boot proceeds unchanged.
 	var scr *console.Renderer
 	if cons, err := openConsole(); err == nil {
 		scr = console.NewRenderer(cons)
-		_ = scr.Banner()
+		_ = scr.Banner(bi.Version)
 	}
 	// Branded per-stage progress. begin marks a stage as in progress; done marks
 	// it complete with [ok]. If Boot returns an error before done() (a fail-closed
