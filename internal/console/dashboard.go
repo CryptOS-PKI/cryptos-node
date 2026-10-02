@@ -391,12 +391,21 @@ func fingerprintLines(fp string, width int) []segLine {
 // groupsWidth is the visible width of n space-separated 4-digit groups.
 func groupsWidth(n int) int { return n*5 - 1 }
 
-// version renders the "v<version>" footer tag.
-func version(v View) string {
-	if v.Version == "" {
+// version renders the footer version tag. The build stamps a git-describe
+// version that already starts with "v", so the prefix is added only to a bare
+// number such as "0.1.0".
+func version(v View) string { return versionTag(v.Version) }
+
+// versionTag is version for a bare version string.
+func versionTag(ver string) string {
+	switch {
+	case ver == "":
 		return "v?"
+	case ver[0] >= '0' && ver[0] <= '9':
+		return "v" + ver
+	default:
+		return ver
 	}
-	return "v" + v.Version
 }
 
 // roleTag returns the header role tag, defaulting to NODE.
