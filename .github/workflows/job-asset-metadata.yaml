@@ -1,0 +1,24 @@
+name: Asset metadata
+
+# Calls the org-wide reusable check (CryptOS-PKI/.github) that fails when a
+# tracked image or PDF carries a C2PA manifest, a JUMBF box, or a PNG caBX
+# chunk -- it can name the tool that made the file, which counts as
+# attribution. A box pre-push hook already blocks this locally; this covers
+# a push from anywhere else.
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+# One run per PR per workflow: a new push cancels the older PR run. Pushes to
+# main are never cancelled, so every main commit keeps a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  asset-metadata:
+    if: github.event.pull_request.draft != true
+    uses: CryptOS-PKI/.github/.github/workflows/asset-metadata.yml@main
