@@ -19,8 +19,9 @@ limitations under the License.
 */
 
 // This file is compiled only into the coverage-instrumented test image that
-// the full-image suite boots (test/image/build.sh sets -tags=e2ecover together
-// with -cover). No release or CI image build sets the tag.
+// the full-image suite boots (cryptos-appliance's test/image/build.sh sets
+// -tags=e2ecover together with -cover). No release or CI image build sets the
+// tag.
 //
 // PID 1 never exits, so Go never writes its coverage counters on its own. The
 // suite attaches a small FAT disk with the virtio serial coverSerial; this

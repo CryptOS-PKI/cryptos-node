@@ -9,8 +9,8 @@ name: Release Drafter
 # (secret) are set for the org/repo, it self-enables — no edit required.
 #
 # The App token is used to push the CHANGELOG commit back to main. That commit
-# touches only CHANGELOG.md (path-ignored by ci-go/ci-image) and carries
-# [skip ci], so it never triggers the image build or re-triggers this workflow.
+# touches only CHANGELOG.md (path-ignored by ci-go) and carries [skip ci], so
+# it never re-triggers this workflow.
 
 on:
   push:

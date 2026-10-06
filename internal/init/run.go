@@ -92,7 +92,7 @@ func (r nodeResetter) Reset(ctx context.Context, confirmCommonName string) error
 }
 
 // Version is the running build's software version, surfaced via GetStatus.
-// It is stamped at build time into internal/buildinfo (build/ci/buildinfo.sh);
+// It is stamped at build time into internal/buildinfo (scripts/buildinfo.sh);
 // an unstamped build reports "dev".
 var Version = buildinfo.Version
 

@@ -100,7 +100,7 @@ func startImageServer(t *testing.T, up cgrpc.ImageUpgrader) *testServer {
 }
 
 // writeImage writes size random bytes plus a signature file beside it, the
-// layout build/uki/sign.sh produces.
+// layout cryptos-appliance's build/uki/sign.sh produces.
 func writeImage(t *testing.T, dir string, size int) (imagePath string, contents []byte) {
 	t.Helper()
 
@@ -143,8 +143,8 @@ func TestImageStage_UploadsAMultiChunkImageIntact(t *testing.T) {
 	}
 }
 
-// build/uki/sign.sh writes the signature as <image>.sig, so not having to name
-// it is the common case and worth not getting wrong.
+// cryptos-appliance's build/uki/sign.sh writes the signature as <image>.sig,
+// so not having to name it is the common case and worth not getting wrong.
 func TestImageStage_DefaultsTheSignaturePathBesideTheImage(t *testing.T) {
 	up := &recordingUpgrader{}
 	ts := startImageServer(t, up)

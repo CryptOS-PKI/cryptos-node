@@ -18,6 +18,12 @@ Builds a signed Unified Kernel Image (UKI): hardened kernel + Go-based PID 1 + r
 
 ## 📂 Layout
 
+This repo is the PKI engine: the node API, PID 1, the management CLI and the
+bare-metal installer. The signed boot image that runs them — kernel, SquashFS,
+UKI assembly, Secure Boot signing, and the QEMU test suites — is built in
+[`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), which
+pins this repo and builds its binaries by import path.
+
 ```
 proto/cryptos/node/v1/ # the node API (cryptos.node.v1) this OS serves
 gen/go/cryptos/node/v1/ # generated Go stubs (package nodev1); `task generate`, never hand-edited
@@ -25,8 +31,6 @@ cmd/
   init/             # PID 1 binary; becomes /init in the SquashFS
   cryptosctl/       # operator CLI (the only management surface on a standalone node)
   cryptos-install/  # bare-metal disk installer (GPT + ESP + UKI)
-  cryptos-sbkey/    # Secure Boot signing key + cert generator (for db enrollment)
-  cryptos-switchroot/ # shim /init: loop-mounts the SquashFS root and pivots into it
 internal/
   init/             # supervisor + boot bring-up
     netlink/        # NIC bring-up via rtnetlink
@@ -41,65 +45,33 @@ internal/
   grpc/             # mTLS gRPC server, RPC handlers
   node/             # typed etcd state layer + gRPC Identity/Status/Config providers
   install/          # bare-metal disk provisioning (partition plan + UKI install)
-  switchroot/       # SquashFS-root pivot sequence (loop-mount + switch_root)
   audit/            # hash-chained audit log
   config/           # machine config parser + validator
   bootstrap/        # bootstrap admin cert loading + first-ceremony rotation
-build/              # kernel config, UKI assembly recipes, SquashFS templates
+scripts/buildinfo.sh # build-identity ldflags for `task build` (see cryptos-appliance for the image's own copy)
 test/kind/          # kind + cert-manager ACME end-to-end harness (task e2e:kind)
-test/image/         # full-image suite: build, run and coverage scripts (task e2e:image)
-test/integration/   # QEMU + swtpm tests against the booted image, including the full-image suite
 testdata/configs/   # sample machine configs
 ```
 
 ## 🛠️ Build + run (dev loop)
 
-Requires Go 1.26.8+ (the `go` line in `go.mod`; an older local Go downloads that toolchain on first use), [`go-task`](https://taskfile.dev), `golangci-lint`, `golic`, [`buf`](https://buf.build) (proto lint and codegen), and (for integration testing) `qemu-system-x86_64` + `swtpm` + OVMF. `task test` also runs the TPM-held RSA CA end-to-end test against `swtpm` when it is installed, because the in-process TPM simulator implements RSA-2048 only; without `swtpm` that test skips locally and fails in CI.
+Requires Go 1.26.8+ (the `go` line in `go.mod`; an older local Go downloads that toolchain on first use), [`go-task`](https://taskfile.dev), `golangci-lint`, `golic`, [`buf`](https://buf.build) (proto lint and codegen), and (for the TPM-held RSA CA test) `swtpm`. `task test` runs that test against `swtpm` when it is installed, because the in-process TPM simulator implements RSA-2048 only; without `swtpm` it skips locally and fails in CI.
 
 ```bash
 task ci          # fmt + proto lint + generated-code check + lint + vet + test + build
 task generate    # regenerate gen/go from proto/ with the pinned plugins (task tools)
-task build       # produces bin/init and bin/cryptosctl, stamped with the build identity
+task build       # produces bin/init, bin/cryptosctl and bin/cryptos-install, stamped with the build identity
 task license     # re-inject Apache 2.0 headers via golic
 task e2e:kind    # Linux + docker: cert-manager in kind gets a certificate over ACME
-task e2e:image   # Linux + KVM + docker: boot the image as a Root and an Intermediate and run the full suite
 ```
 
 `task e2e:kind` builds a Root and an ACME-serving Intermediate in-process (software keys, no TPM), stands up a kind cluster with cert-manager and Contour, and checks that a `Certificate` goes Ready with a chain to the root and renews to a new serial. It downloads pinned, checksum-checked kind, kubectl and manifests ([`test/kind/versions.env`](test/kind/versions.env)), needs sudo once to add a `/etc/hosts` line for the test name, and skips when docker isn't available.
 
-`task e2e:image` builds a coverage-instrumented variant of the image ([`test/image/build.sh`](test/image/build.sh): the same kernel and rootfs, with `/init` built with `-cover` and a throwaway upgrade anchor, plus a signed successor image for the upgrade step; release and CI images are never built with `-cover`), boots it in QEMU with swtpm and OVMF as a software-key Root and a TPM-key Intermediate, and runs the steps in [`test/integration/image_suite_test.go`](test/integration/image_suite_test.go) against them with `cryptosctl`: the ceremony, sign-subordinate, leaf issuance, nginx with OCSP stapling, revocation, the ACME and EST protocol switch, cert-manager over ACME in kind, EST enrolment, re-certify, escrow, an in-place image upgrade on both nodes and the console reset. Each step reports pass, fail or skip in `summary.md`, and the merged coverage lands in `coverage.html`. It needs qemu, swtpm, OVMF, mtools, sgdisk, docker and sudo for one `/etc/hosts` line, and skips on a host without them.
+`bin/cryptosctl version` prints the version, commit, and build date the binary was built from (`git describe --tags --always --dirty`; see [`scripts/buildinfo.sh`](scripts/buildinfo.sh)); pass `--endpoint` to also show the node's version.
 
-`bin/cryptosctl version` prints the version, commit, and build date the binary was built from (`git describe --tags --always --dirty`; see [`build/README.md`](build/README.md#build-identity)); pass `--endpoint` to also show the node's version.
+### The boot image
 
-The image pipeline (`task image` — hardened kernel build, SquashFS rootfs, UKI assembly + Secure Boot signing) has draft recipes under `build/` that run on a Linux build host; see [`build/README.md`](build/README.md). They are written but not yet executed end to end. The QEMU + `swtpm` integration harness lands in a subsequent PR.
-
-### Bring your own Secure Boot key
-
-CryptOS ships no signing key and trusts none that the project generated. You generate your own RSA Secure Boot key and certificate (with openssl or `cryptos-sbkey`), then build with it:
-
-```bash
-export SB_KEY=/path/to/sb.key SB_CERT=/path/to/sb.crt
-task image PLATFORM=vmware STATEKEY=nodeid    # or: task iso PLATFORM=vmware STATEKEY=nodeid
-```
-
-> [!IMPORTANT]
-> Keep `SB_CERT` set for the whole run: `rootfs:build` stamps it into the image as the upgrade anchor, and `uki:sign` signs the UKI and writes the detached `.uki.sig` with the same key. A node only stages later images signed by that key, so losing the key means re-provisioning to change anchors. Enroll the certificate in firmware `db` (vSphere, firmware UI, `sbctl`, or `efitools`) to boot with Secure Boot on, or run with Secure Boot off and rely on the stamped anchor for upgrades.
-
-Public release assets are unsigned, or a build recipe only. [`docs/secure-boot.md`](docs/secure-boot.md) is the full guide: key generation, enrollment, building, verifying with `sbverify` and openssl, upgrades, and key custody.
-
-### Release assets
-
-Each `v*` tag attaches these to its GitHub Release, all built by `task iso:unsigned` with no Secure Boot variables set:
-
-| Asset | What it is |
-|---|---|
-| `cryptos-amd64-vmware.uki.unsigned`, `cryptos-amd64-vmware-nodeid.uki.unsigned` | the UKI (TPM-backed and `STATEKEY=nodeid` variants), with no Secure Boot signature and no upgrade anchor |
-| `cryptos-amd64-vmware-unsigned.iso`, `cryptos-amd64-vmware-nodeid-unsigned.iso` | the same UKIs wrapped in a UEFI-bootable installer ISO |
-| `cryptosctl-{linux,darwin}-{amd64,arm64}` | the static CLI, stamped with the release version |
-| `SHA256SUMS` | SHA-256 of every asset above |
-
-> [!IMPORTANT]
-> They are for evaluation with Secure Boot off. A node installed from one cannot be upgraded in place (it has no anchor), so for real use build with your own key as above. `task image:unsigned` and `task iso:unsigned` reproduce the assets locally; they clear `SB_CERT` for `rootfs:build` and never sign, even if `SB_KEY`/`SB_CERT` are exported.
+This repo builds no bootable image. The hardened kernel, SquashFS rootfs, UKI assembly, Secure Boot signing, the installer ISO and the QEMU + `swtpm` integration suites all live in [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), which requires this module at a pinned version and builds `init`, `cryptosctl` and the console by import path. See that repo's README and `docs/secure-boot.md` for building, signing and Secure Boot key custody.
 
 ## 🤖 Continuous integration
 
@@ -108,11 +80,10 @@ GitHub Actions:
 - **`ci-go`** ([`ci-go.yml`](.github/workflows/ci-go.yml)) — `task ci` (format, proto lint, generated-code check, lint, vet, test, build) on every pull request + push to `main`, on a GitHub-hosted Linux runner, with `swtpm` installed for the TPM-held RSA CA test. Draft pull requests are skipped; CI runs when the PR is marked ready.
 
 After a stacked pull request is retargeted onto `main`, CI starts on its next push, or when it is toggled to draft and back to ready.
-- **`ci-image`** ([`ci-image.yml`](.github/workflows/ci-image.yml)) — builds the UKI on a **GitHub-hosted runner** (amd64 on `ubuntu-latest`, arm64 on `ubuntu-24.04-arm`), installing the kernel / `ukify` / `sbsign` toolchain per run. Runs on push to `main`, tags, and manual dispatch; use `workflow_dispatch` on a branch to validate image changes before merging. On `main` it signs with a per-run ephemeral key as a smoke test and uploads nothing. On a `v*` tag it builds the unsigned [release assets](#release-assets) and attaches them to the tag's release (a draft, marked pre-release for `-alpha`/`-beta`/`-rc` tags, if none exists yet); dispatch with `release_assets` builds them without publishing.
 
 - **`ci-kind-acme`** ([`ci-kind-acme.yml`](.github/workflows/ci-kind-acme.yml)) — `test/kind/run.sh` (the `task e2e:kind` harness) on pull requests that touch the ACME, config, node or e2e code, on a GitHub-hosted runner. Drafts are skipped, and it isn't a required check.
 
-- **`ci-e2e-image`** ([`ci-e2e-image.yml`](.github/workflows/ci-e2e-image.yml)) — the full-image suite (`task e2e:image`) on a GitHub-hosted runner, with KVM when the runner has it: nightly, on pull requests that touch the image build, the boot, or the protocol and config code, and on manual dispatch. The step table and per-package coverage go into the job summary and the HTML report into the run's artifacts. Drafts are skipped, and it isn't a required check.
+`cryptos-appliance` runs its own `ci-image` and `ci-e2e-image` against the image it builds from this repo.
 
 ## 🔑 Management surfaces
 

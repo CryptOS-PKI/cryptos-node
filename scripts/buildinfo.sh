@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Print the -ldflags -X arguments that stamp a binary's build identity into
-# internal/buildinfo (version, commit, build date). Every Go build of a shipped
-# binary uses it, so the node image and cryptosctl built from one checkout
-# report the same identity (`cryptosctl status` / `cryptosctl version`):
+# internal/buildinfo (version, commit, build date). `task build` uses it for
+# every binary built from this checkout (init, cryptosctl, cryptos-install), so
+# they report the same identity (`cryptosctl status` / `cryptosctl version`).
+# cryptos-appliance carries its own copy for the image it builds.
 #
-#   go build -ldflags "-s -w $(build/ci/buildinfo.sh)" ./cmd/cryptosctl
+#   go build -ldflags "-s -w $(scripts/buildinfo.sh)" ./cmd/cryptosctl
 #
 # version    `git describe --tags --always --dirty` (CRYPTOS_VERSION overrides)
 # commit     full commit hash, suffixed -dirty for a modified tree
@@ -17,7 +18,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/../.." && pwd)"
+root="$(cd "$here/.." && pwd)"
 pkg="github.com/CryptOS-PKI/cryptos-node/internal/buildinfo"
 
 version="${CRYPTOS_VERSION:-$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)}"

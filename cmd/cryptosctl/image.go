@@ -99,8 +99,8 @@ func newImageStageCmd(opts *globalOpts) *cobra.Command {
 				return errors.New("--image is required")
 			}
 			if sigPath == "" {
-				// build/uki/sign.sh writes the detached signature beside the
-				// image under exactly this name.
+				// cryptos-appliance's build/uki/sign.sh writes the detached
+				// signature beside the image under exactly this name.
 				sigPath = imagePath + ".sig"
 			}
 			signature, err := os.ReadFile(sigPath)

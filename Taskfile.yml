@@ -47,16 +47,15 @@ tasks:
       - go test ./...
 
   build:
-    desc: Build the init, cryptosctl, cryptos-install, and cryptos-sbkey binaries to bin/ (build identity stamped)
+    desc: Build the init, cryptosctl, and cryptos-install binaries to bin/ (build identity stamped)
     vars:
-      # Version/commit/build date for internal/buildinfo; see build/ci/buildinfo.sh.
+      # Version/commit/build date for internal/buildinfo; see scripts/buildinfo.sh.
       BUILDINFO:
-        sh: bash build/ci/buildinfo.sh
+        sh: bash scripts/buildinfo.sh
     cmds:
       - go build -ldflags "{{.BUILDINFO}}" -o bin/init ./cmd/init
       - go build -ldflags "{{.BUILDINFO}}" -o bin/cryptosctl ./cmd/cryptosctl
       - go build -ldflags "{{.BUILDINFO}}" -o bin/cryptos-install ./cmd/cryptos-install
-      - go build -ldflags "{{.BUILDINFO}}" -o bin/cryptos-sbkey ./cmd/cryptos-sbkey
 
   proto:fmt:
     desc: Format the node API protos
@@ -137,131 +136,7 @@ tasks:
       - task: test
       - task: build
 
-  # ---- Image build (Linux host only; see build/README.md) ----
-  # DRAFT recipes — not yet executed. Require a Linux toolchain
-  # (kernel build, mksquashfs, ukify, sbsign, cpio). ARCH defaults to amd64.
-
-  kernel:build:
-    desc: "[Linux] Fetch + build the pinned hardened kernel (PLATFORM adds drivers)"
-    cmds:
-      - PLATFORM='{{.PLATFORM}}' bash build/kernel/build.sh {{.ARCH | default "amd64"}}
-
-  cryptsetup:build:
-    desc: "[Linux] Build the static cryptsetup from source (Docker + Alpine/musl)"
-    cmds:
-      - bash build/cryptsetup/build.sh {{.ARCH | default "amd64"}}
-
-  e2fsprogs:build:
-    desc: "[Linux] Build the static mke2fs/mkfs.ext4 from source (Docker + Debian/glibc)"
-    cmds:
-      - bash build/e2fsprogs/build.sh {{.ARCH | default "amd64"}}
-
-  sgdisk:build:
-    desc: "[Linux] Build the static sgdisk (gptfdisk) from source (Docker + Debian/glibc)"
-    cmds:
-      - bash build/gptfdisk/build.sh {{.ARCH | default "amd64"}}
-
-  mkfsvfat:build:
-    desc: "[Linux] Build the static mkfs.vfat (dosfstools) from source (Docker + Debian/glibc)"
-    cmds:
-      - bash build/dosfstools/build.sh {{.ARCH | default "amd64"}}
-
-  rootfs:build:
-    desc: "[Linux] Assemble the rootfs tree + pack the SquashFS (STATEKEY=tpm|nodeid; NO_ANCHOR=1 ignores SB_CERT)"
-    cmds:
-      # SB_CERT in the environment is stamped into /init as the image upgrade
-      # anchor. NO_ANCHOR (set by the unsigned tasks) clears it for this step so
-      # no anchor can be stamped, whatever the caller's environment holds.
-      - >-
-        {{if .NO_ANCHOR}}SB_CERT= {{end}}STATEKEY='{{.STATEKEY | default "tpm"}}'
-        bash build/squashfs/build.sh {{.ARCH | default "amd64"}}
-
-  uki:assemble:
-    desc: "[Linux] Assemble the unsigned UKI (PROFILE=prod|qemu-dev)"
-    cmds:
-      - bash build/uki/assemble.sh {{.ARCH | default "amd64"}} {{.PROFILE | default "prod"}}
-
-  uki:sign:
-    desc: "[Linux] Secure Boot-sign the UKI (needs SB_KEY/SB_CERT)"
-    cmds:
-      - bash build/uki/sign.sh {{.ARCH | default "amd64"}}
-
-  image:
-    desc: "[Linux] Full prod image build (kernel + cryptsetup + rootfs + UKI + sign; STATEKEY=tpm|nodeid)"
-    cmds:
-      - task: kernel:build
-        vars: {PLATFORM: '{{.PLATFORM}}'}
-      - task: cryptsetup:build
-      - task: e2fsprogs:build
-      - task: sgdisk:build
-      - task: mkfsvfat:build
-      - task: rootfs:build
-        vars: {STATEKEY: '{{.STATEKEY | default "tpm"}}'}
-      - task: uki:assemble
-      - task: uki:sign
-
-  iso:
-    desc: "[Linux] Build a UEFI-bootable ISO for a platform (PLATFORM=vmware STATEKEY=tpm|nodeid)"
-    cmds:
-      - task: image
-        vars: {PLATFORM: '{{.PLATFORM | default "vmware"}}', STATEKEY: '{{.STATEKEY | default "tpm"}}'}
-      - PLATFORM='{{.PLATFORM | default "vmware"}}' STATEKEY='{{.STATEKEY | default "tpm"}}' bash build/iso/build.sh {{.ARCH | default "amd64"}}
-
-  # Unsigned path: the shape of the published release assets. Nothing is signed
-  # and no upgrade anchor is stamped, even if SB_KEY/SB_CERT are exported, so
-  # the output trusts no key. Sign it with your own key (task uki:sign, or a
-  # full `task image` with SB_KEY/SB_CERT set); see docs/secure-boot.md.
-  image:unsigned:
-    desc: "[Linux] Full prod image build, unsigned, no upgrade anchor (-> build/out/cryptos-<arch>.uki.unsigned; STATEKEY=tpm|nodeid)"
-    cmds:
-      - task: kernel:build
-        vars: {PLATFORM: '{{.PLATFORM}}'}
-      - task: cryptsetup:build
-      - task: e2fsprogs:build
-      - task: sgdisk:build
-      - task: mkfsvfat:build
-      - task: rootfs:build
-        vars: {STATEKEY: '{{.STATEKEY | default "tpm"}}', NO_ANCHOR: '1'}
-      - task: uki:assemble
-
-  iso:unsigned:
-    desc: "[Linux] Unsigned UEFI ISO, no upgrade anchor (PLATFORM=vmware STATEKEY=tpm|nodeid; -> cryptos-<arch>-<platform>[-nodeid]-unsigned.iso)"
-    cmds:
-      - task: image:unsigned
-        vars: {PLATFORM: '{{.PLATFORM | default "vmware"}}', STATEKEY: '{{.STATEKEY | default "tpm"}}'}
-      - UNSIGNED=1 PLATFORM='{{.PLATFORM | default "vmware"}}' STATEKEY='{{.STATEKEY | default "tpm"}}' bash build/iso/build.sh {{.ARCH | default "amd64"}}
-
-  image:debug:
-    desc: "[Linux] Debug UKI (qemu-dev cmdline; STATEKEY=tpm|nodeid); never published"
-    cmds:
-      - task: kernel:build
-        vars: {PLATFORM: '{{.PLATFORM}}'}
-      - task: cryptsetup:build
-      - task: e2fsprogs:build
-      - task: sgdisk:build
-      - task: mkfsvfat:build
-      - task: rootfs:build
-        vars: {STATEKEY: '{{.STATEKEY | default "tpm"}}'}
-      - task: uki:assemble
-        vars: {PROFILE: qemu-dev}
-
-  qemu:run:
-    desc: "[Linux] Boot the debug image in QEMU + swtpm (interactive)"
-    cmds:
-      - bash build/ci/qemu-run.sh {{.ARCH | default "amd64"}}
-
   e2e:kind:
     desc: "[Linux] cert-manager in a kind cluster enrols over ACME with an in-process Intermediate (needs docker; skips without it)"
     cmds:
       - bash test/kind/run.sh
-
-  e2e:image:
-    desc: "[Linux] Full-image suite: boot the image in QEMU as a Root and an Intermediate and drive every step with cryptosctl (needs KVM, qemu, swtpm, OVMF, docker; skips without them)"
-    cmds:
-      - bash test/image/build.sh
-      - bash test/image/run.sh
-
-  test:integration:
-    desc: "[Linux] Phase 1 QEMU + swtpm end-to-end acceptance (needs the toolchain; see test/integration)"
-    cmds:
-      - go test -tags=integration -count=1 -v ./test/integration/...
