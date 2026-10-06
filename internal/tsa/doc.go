@@ -1,5 +1,21 @@
 // Package tsa is the node's RFC 3161 time-stamp authority: the TSA
-// certificate and key it signs tokens with.
+// certificate and key it signs tokens with, and the responder that turns a
+// TimeStampReq into a TimeStampResp.
+//
+// # Tokens
+//
+// Responder accepts version 1 requests with a SHA-256, SHA-384 or SHA-512
+// message imprint; SHA-1, MD5 and anything else get badAlg. A request for a
+// policy other than the configured one gets unacceptedPolicy, and a request
+// with extensions gets unacceptedExtension, since none is supported. A
+// granted token echoes the message imprint and the nonce, names the
+// configured policy, carries a random 159-bit serial number, a genTime in
+// UTC to the millisecond and the configured accuracy, and claims no ordering.
+// It is a SignedData built by internal/cms, signed by the TSA key with the
+// digest the node pairs with that key (SHA-384 for P-384 and RSA 3072 or
+// larger), with a signing-certificate-v2 attribute (RFC 5816) naming the TSA
+// certificate by SHA-256 hash, issuer and serial number. The TSA certificate
+// is carried only when the request asks for it (certReq).
 //
 // # Keys and certificates
 //
