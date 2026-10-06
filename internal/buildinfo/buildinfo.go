@@ -2,10 +2,10 @@
 // version, the commit it was built from, and when.
 //
 // The values are stamped at build time with -ldflags -X by
-// build/ci/buildinfo.sh, which every build script and task uses, so the node
-// image and cryptosctl report the same identity for the same checkout:
+// scripts/buildinfo.sh, which `task build` uses for every binary in this
+// checkout, so they report the same identity:
 //
-//	go build -ldflags "$(build/ci/buildinfo.sh)" ./cmd/cryptosctl
+//	go build -ldflags "$(scripts/buildinfo.sh)" ./cmd/cryptosctl
 //
 // An unstamped build still identifies itself as well as it can: the commit and
 // build date fall back to the VCS metadata the Go toolchain embeds when it

@@ -10,10 +10,11 @@
 //
 // This is the same certificate that is enrolled in the machine's Secure Boot
 // db and whose key sbsign uses on the UKI, supplied by whoever builds the
-// image (SB_CERT, see build/squashfs/build.sh). Reusing it keeps one release
-// anchor instead of two, and it keeps builds apart for free: a CI build signed
-// with the per-run ephemeral key is not signed by an operator's certificate,
-// so it cannot be staged onto that operator's nodes by accident.
+// image (SB_CERT, see cryptos-appliance's build/squashfs/build.sh). Reusing it
+// keeps one release anchor instead of two, and it keeps builds apart for
+// free: a CI build signed with the per-run ephemeral key is not signed by an
+// operator's certificate, so it cannot be staged onto that operator's nodes
+// by accident.
 //
 // The project publishes no certificate. Tagged release assets are built
 // unsigned and with CertificateDER empty, so a node installed from one serves
@@ -54,7 +55,8 @@ import (
 //
 // A link-time variable rather than an embedded file so a signed build needs no
 // edit to a tracked file, the same way STATEKEY already selects the key mode
-// (see build/squashfs/build.sh). It is empty in a development build.
+// (see cryptos-appliance's build/squashfs/build.sh). It is empty in a
+// development build.
 var CertificateDER string
 
 // ErrNoCertificate reports that this build carries no release certificate,

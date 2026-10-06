@@ -32,9 +32,10 @@ import (
 )
 
 // The rootfs is a read-only SquashFS, so /etc/resolv.conf in the image is a
-// symlink to resolvConfPath on the /run tmpfs (build/squashfs/build.sh). Go's
-// resolver reads /etc/resolv.conf through that link; with no file there it
-// falls back to a nameserver on localhost, where nothing listens.
+// symlink to resolvConfPath on the /run tmpfs (cryptos-appliance's
+// build/squashfs/build.sh). Go's resolver reads /etc/resolv.conf through that
+// link; with no file there it falls back to a nameserver on localhost, where
+// nothing listens.
 const (
 	resolvConfPath = "/run/resolv.conf"
 	// pnpPath is where the kernel's ip= autoconfiguration reports what it
