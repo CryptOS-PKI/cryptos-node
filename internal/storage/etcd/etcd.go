@@ -186,6 +186,14 @@ const (
 	// RSA 3072 key as PKCS#8, on the encrypted state partition like the
 	// delegated OCSP responder key.
 	PrefixSCEPRA = "/cryptos/scep/ra/"
+
+	// PrefixTSACerts stores one RFC 3161 TSA certificate per certificate the
+	// node has signed tokens with, keyed by PrefixTSACerts + hex serial. Value
+	// is a JSON tsa.storedCert: the certificate, kept for good so old tokens
+	// still verify, and, while it is the one tokens are signed with, the TSA
+	// key blobs from the CA key backend (TPM-wrapped where the node has a
+	// TPM).
+	PrefixTSACerts = "/cryptos/tsa/certs/"
 )
 
 // Server is a running embedded etcd. Not safe for concurrent Open/Close.
