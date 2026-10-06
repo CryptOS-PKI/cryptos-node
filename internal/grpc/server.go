@@ -336,6 +336,12 @@ type ServerConfig struct {
 	// SCEP listener started this boot; nil makes those RPCs FailedPrecondition.
 	ScepAdmin ScepAdmin
 
+	// TsaCertificates backs ListTsaCertificates. It is wired on the mTLS and
+	// local servers of a running node, whether or not the TSA runs this boot;
+	// the maintenance servers leave it nil, so the RPC answers
+	// FailedPrecondition there.
+	TsaCertificates TsaCertificateLister
+
 	// AuditLog backs the audit read RPCs (ListAuditEvents, VerifyAuditChain).
 	// It is wired on the mTLS and local servers of a running node; the
 	// maintenance servers leave it nil, so those RPCs answer

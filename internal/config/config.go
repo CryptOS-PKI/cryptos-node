@@ -304,6 +304,10 @@ type PKI struct {
 	// SCEP configures the RFC 8894 enrolment endpoint (see SCEP). Nil is
 	// off, the default. Unlike ACME and EST it is carried in the proto.
 	SCEP *SCEP `yaml:"scep"`
+	// TSA configures the RFC 3161 time-stamp authority (see TSA). Nil is
+	// off, the default. Like ACME and EST it is carried as Pki.tsa, keeps an
+	// off block's settings in DisabledTSA, and a Root refuses it.
+	TSA *TSA `yaml:"tsa"`
 	// DisabledACME and DisabledEST keep the settings of a protocol block
 	// that is switched off (enabled: false), so the same block can be
 	// switched back on without re-entering them. Nothing reads them at boot:
@@ -312,6 +316,7 @@ type PKI struct {
 	// the acme or est block with enabled: false.
 	DisabledACME *ACME `yaml:"-" json:",omitempty"`
 	DisabledEST  *EST  `yaml:"-" json:",omitempty"`
+	DisabledTSA  *TSA  `yaml:"-" json:",omitempty"`
 }
 
 // EST configures the node's RFC 7030 server.
@@ -622,6 +627,9 @@ func (c *Config) validate(keptSecrets bool) error {
 		return err
 	}
 	if err := validateSCEP(c.Role.Kind, c.PKI.SCEP, c.PKI.Profiles); err != nil {
+		return err
+	}
+	if err := validateTSA(c.PKI.TSA); err != nil {
 		return err
 	}
 	if err := validateParent(c.Role.Kind, c.PKI.Parent); err != nil {
@@ -1104,7 +1112,7 @@ func marshalSorted(v interface{}) ([]byte, error) {
 // Marshal renders c as the canonical machine.yaml document. A disabled
 // protocol block is written as its block with enabled: false.
 func (c *Config) Marshal() ([]byte, error) {
-	if c.PKI.DisabledACME == nil && c.PKI.DisabledEST == nil {
+	if c.PKI.DisabledACME == nil && c.PKI.DisabledEST == nil && c.PKI.DisabledTSA == nil {
 		return yaml.Marshal(c)
 	}
 	return marshalWithDisabledBlocks(c)
@@ -1166,6 +1174,7 @@ func FromProto(pb *nodev1.MachineConfig) (*Config, error) {
 		c.PKI.ACME, c.PKI.DisabledACME = acmeFromProto(pb.Pki.Acme)
 		c.PKI.EST, c.PKI.DisabledEST = estFromProto(pb.Pki.Est)
 		c.PKI.SCEP = scepFromProto(pb.Pki.Scep)
+		c.PKI.TSA, c.PKI.DisabledTSA = tsaFromProto(pb.Pki.Tsa)
 	}
 	if pb.Install != nil {
 		c.Install.Disk = pb.Install.Disk
@@ -1214,6 +1223,7 @@ func (c *Config) ToProto() *nodev1.MachineConfig {
 		Est:                          estToProto(c.PKI.EST, c.PKI.DisabledEST),
 		AllowUnsyncedClock:           c.PKI.AllowUnsyncedClock,
 		Scep:                         scepToProto(c.PKI.SCEP),
+		Tsa:                          tsaToProto(c.PKI.TSA, c.PKI.DisabledTSA),
 	}
 	if c.PKI.Parent != nil {
 		pki.Parent = &nodev1.Parent{

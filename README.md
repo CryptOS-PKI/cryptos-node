@@ -112,6 +112,8 @@ Issuing LDAPS and KDC certificates to Active Directory domain controllers, inclu
 
 Network devices that cannot run ACME, such as Cisco IOS and IOS-XE trustpoints, enrol over SCEP (RFC 8894): each initial enrolment is authorized by a one-time challenge from `cryptosctl scep challenge mint`, and renewal by the device's current certificate. [`docs/scep.md`](docs/scep.md) covers switching it on, the per-profile key floor, the RA certificate and the approval queue.
 
+Code signatures stay verifiable after the signing certificate expires when they carry an RFC 3161 timestamp. An Intermediate or Issuing node serves them from a TSA certificate of its own (the CA key never signs a token), once `pki.tsa` names your policy OID, and refuses to stamp while its clock is not synced. [`docs/tsa.md`](docs/tsa.md) covers switching it on, the policy OID, access limits, the clock gate, certificate rotation and `cryptosctl tsa certificates`.
+
 ### Rebooting or powering off a node
 
 Most `config apply` changes report `requires_reboot=true`. Restart the node through its orderly shutdown rather than a hypervisor hard reset:

@@ -56,6 +56,7 @@ import (
 	"github.com/CryptOS-PKI/cryptos-node/internal/storage/etcd"
 	"github.com/CryptOS-PKI/cryptos-node/internal/storage/luks"
 	"github.com/CryptOS-PKI/cryptos-node/internal/tpm"
+	"github.com/CryptOS-PKI/cryptos-node/internal/tsa"
 )
 
 // resetRebootDelay is the grace period between accepting a Reset and
@@ -396,7 +397,7 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	// The enrolment listeners start once, below, from this boot's config. A
 	// protocol switched by ApplyConfig waits for the next boot, and GetStatus
 	// shows it configured but not running until then.
-	var acmeRunning, estRunning, scepRunning atomic.Bool
+	var acmeRunning, estRunning, scepRunning, tsaRunning atomic.Bool
 	statusProv, err := node.NewStatusProvider(node.StatusConfig{
 		Store:           store,
 		Role:            cfg.NodeRole(),
@@ -416,6 +417,8 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 				return estRunning.Load()
 			case nodev1.ServiceProtocol_SERVICE_PROTOCOL_SCEP:
 				return scepRunning.Load()
+			case nodev1.ServiceProtocol_SERVICE_PROTOCOL_TSA:
+				return tsaRunning.Load()
 			default:
 				return false
 			}
@@ -526,6 +529,23 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	// for this boot, and the SCEP RPCs answer FailedPrecondition, rather than
 	// failing a boot that still has to serve everything else.
 	scepSrv, scepRAs := newSCEPServer(ctx, cfg, cli, keyLoader, issuerFunc, caSigner, revStore, revoker, logger)
+
+	// RFC 3161 time-stamp authority, built here so its certificate exists
+	// before the listener starts at 12f. It exists only when pki.tsa is on in
+	// the config this boot started from (Validate refuses it on a Root). Its
+	// key comes from the same backend as the CA key, and its clock gate reads
+	// the time-sync engine. A failure to set it up leaves the TSA off for this
+	// boot rather than failing the boot. The certificate catalog is served
+	// whether or not the TSA runs, so old tokens stay verifiable.
+	tsaSvc := newTSAService(ctx, cfg, tsaDeps{
+		cli: cli, backend: rootBackend, load: keyLoader, issuer: issuerFunc, revStore: revStore, timeStatus: timeSync.Status,
+	})
+	tsaCerts := tsaCatalog{store: tsa.NewStore(cli), current: func() (*x509.Certificate, bool) {
+		if tsaSvc == nil || !tsaRunning.Load() {
+			return nil, false
+		}
+		return tsaSvc.certs.Current()
+	}}
 
 	// Delegated OCSP responder manager: it mints/renews a short-lived responder
 	// certificate with this node's CA (loading the CA key only to mint/renew,
@@ -693,6 +713,7 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	if scepSrv != nil {
 		localCfg.ScepAdmin = scepSrv
 	}
+	localCfg.TsaCertificates = tsaCerts
 	_ = os.Remove(LocalSocketPath)
 	localSrv, err := cgrpc.NewLocal(localCfg)
 	if err != nil {
@@ -779,6 +800,7 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	if scepSrv != nil {
 		mtlsCfg.ScepAdmin = scepSrv
 	}
+	mtlsCfg.TsaCertificates = tsaCerts
 	// RemoteReset (manager-mediated decommission) is admin-authorized over
 	// mTLS: it drives the same destructive wipe as the local Reset, so it
 	// carries the same resetter here. The mTLS server leaves Resetter nil, so
@@ -965,6 +987,26 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 		go superviseSCEPRA(ctx, scepRAs)
 	} else {
 		log.Printf("SCEP: off this boot")
+	}
+
+	// 12f. RFC 3161 time-stamp authority listener. Plain HTTP, as the RFC
+	// describes: the token carries its own integrity. Like every enrolment
+	// protocol it starts only here, at boot, from the stored config.
+	if tsaSvc != nil {
+		stopTSA, serr := tsa.Serve(ctx, tsaSvc.addr, tsaSvc.handler)
+		if serr != nil {
+			return fmt.Errorf("init: start the TSA listener on %s: %w", tsaSvc.addr, serr)
+		}
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = stopTSA(shutdownCtx)
+		}()
+		tsaRunning.Store(true)
+		log.Printf("TSA listener up: %s (POST %s)", tsaSvc.addr, tsa.ContentTypeQuery)
+		go superviseTSACerts(ctx, tsaSvc.certs)
+	} else {
+		log.Printf("TSA: off this boot")
 	}
 
 	done()

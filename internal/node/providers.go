@@ -190,6 +190,12 @@ func (p *StatusProvider) protocols() ([]*nodev1.ProtocolStatus, bool) {
 			Running:       running(nodev1.ServiceProtocol_SERVICE_PROTOCOL_SCEP),
 			RebootPending: !config.Equivalent(boot.PKI.SCEP, stored.PKI.SCEP),
 		},
+		{
+			Protocol:      nodev1.ServiceProtocol_SERVICE_PROTOCOL_TSA,
+			Configured:    stored.PKI.TSA != nil,
+			Running:       running(nodev1.ServiceProtocol_SERVICE_PROTOCOL_TSA),
+			RebootPending: !config.Equivalent(boot.PKI.TSA, stored.PKI.TSA),
+		},
 	}
 	return out, pending
 }

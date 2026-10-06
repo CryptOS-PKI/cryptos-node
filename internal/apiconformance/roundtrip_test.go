@@ -53,8 +53,7 @@ import (
 // Unimplemented from its own handler. They still have to reach that handler:
 // the framework's "unknown service" or "unknown method" answer fails the test.
 var unservedByDesign = map[string]bool{
-	"SignCSR":             true, // debug-only (build tag debug_signcsr)
-	"ListTsaCertificates": true, // the RFC 3161 TSA is not served yet
+	"SignCSR": true, // debug-only (build tag debug_signcsr)
 }
 
 func TestNodeServiceRoundTrip(t *testing.T) {
