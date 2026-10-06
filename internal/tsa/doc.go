@@ -17,6 +17,17 @@
 // certificate by SHA-256 hash, issuer and serial number. The TSA certificate
 // is carried only when the request asks for it (certReq).
 //
+// # Listener
+//
+// The handler answers POST requests of type application/timestamp-query on
+// the root path with application/timestamp-reply, in plain HTTP (RFC 3161
+// section 3.4). A client outside the allowed networks gets 403, and one over
+// its rate limit (a token bucket per IPv4 address or IPv6 /64) gets 429 with
+// Retry-After, both before the request is read. While the clock is not
+// trustworthy (ClockGate: the latest time sync did not succeed, or measured
+// an offset larger than the claimed accuracy) every request is refused with
+// timeNotAvailable and the reason is logged.
+//
 // # Keys and certificates
 //
 // The CA key never signs a token. Tokens are signed by a separate TSA

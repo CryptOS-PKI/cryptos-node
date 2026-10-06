@@ -39,6 +39,9 @@ type ResponderOptions struct {
 	Policy asn1.ObjectIdentifier
 	// Accuracy is the accuracy every token claims, at least a millisecond.
 	Accuracy time.Duration
+	// TimeAvailable, when set, is asked before every token; an error
+	// refuses the request with timeNotAvailable and is logged (ClockGate).
+	TimeAvailable func() error
 	// Now and Logf default to time.Now and discarding.
 	Now  func() time.Time
 	Logf func(string, ...any)
@@ -96,6 +99,12 @@ func (r *Responder) Respond(ctx context.Context, der []byte) ([]byte, Outcome, e
 	}
 	if req.ReqPolicy != nil && !req.ReqPolicy.Equal(r.opts.Policy) {
 		return r.reject(FailUnacceptedPolicy, fmt.Sprintf("the request asks for policy %s; this TSA serves %s", req.ReqPolicy, r.opts.Policy))
+	}
+
+	if r.opts.TimeAvailable != nil {
+		if err := r.opts.TimeAvailable(); err != nil {
+			return r.reject(FailTimeNotAvailable, err.Error())
+		}
 	}
 
 	serial, err := r.serial()
