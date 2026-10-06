@@ -26,7 +26,7 @@ import (
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
-// The enrolment protocol blocks (pki.acme, pki.est, pki.scep) travel in MachineConfig
+// The enrolment protocol blocks (pki.acme, pki.est, pki.scep, pki.tsa) travel in MachineConfig
 // under one set of rules, shared by every protocol that gains a block:
 //
 //   - In the proto, a block carries an explicit enabled flag. ToProto always
@@ -66,6 +66,10 @@ func validateProtocolRole(role RoleKind, p PKI) error {
 	if p.EST != nil {
 		return errors.New("config: pki.est: must not be set on a root node; a root serves no " +
 			"enrolment protocol, so serve EST from an intermediate or issuing node")
+	}
+	if p.TSA != nil {
+		return errors.New("config: pki.tsa: must not be enabled on a root node; Root Mode closes the " +
+			"service-plane listeners, so serve the TSA from an intermediate or issuing node")
 	}
 	return nil
 }
@@ -114,6 +118,9 @@ func FromProtoOver(pb *nodev1.MachineConfig, prev *Config) (*Config, error) {
 		}
 	}
 	c.KeepStoredSCEPWhenAbsent(pb, prev)
+	if pb.GetPki().GetTsa() == nil {
+		c.PKI.TSA, c.PKI.DisabledTSA = prevPKI.TSA, prevPKI.DisabledTSA
+	}
 	return c, nil
 }
 
@@ -286,10 +293,10 @@ func estFromProto(pb *nodev1.Est) (on, off *EST) {
 }
 
 // protocolKeys are the pki keys whose blocks carry an enabled flag in YAML.
-var protocolKeys = []string{"acme", "est"}
+var protocolKeys = []string{"acme", "est", "tsa"}
 
-// popProtocolFlags removes the enabled flag from the pki.acme and pki.est
-// blocks of a YAML document, which the Config structs do not carry, and
+// popProtocolFlags removes the enabled flag from the pki.acme, pki.est and
+// pki.tsa blocks of a YAML document, which the Config structs do not carry, and
 // returns the document without them plus the flags it found. A document with
 // no flag comes back unchanged.
 func popProtocolFlags(raw []byte) ([]byte, map[string]bool, error) {
@@ -336,6 +343,9 @@ func (c *Config) applyProtocolFlags(flags map[string]bool) {
 	if on, ok := flags["est"]; ok && !on {
 		c.PKI.EST, c.PKI.DisabledEST = nil, offBlock(c.PKI.EST)
 	}
+	if on, ok := flags["tsa"]; ok && !on {
+		c.PKI.TSA, c.PKI.DisabledTSA = nil, offBlock(c.PKI.TSA)
+	}
 }
 
 // marshalWithDisabledBlocks renders c with each off block written in its
@@ -350,6 +360,10 @@ func marshalWithDisabledBlocks(c *Config) ([]byte, error) {
 	if out.PKI.EST == nil && out.PKI.DisabledEST != nil {
 		out.PKI.EST = out.PKI.DisabledEST
 		off = append(off, "est")
+	}
+	if out.PKI.TSA == nil && out.PKI.DisabledTSA != nil {
+		out.PKI.TSA = out.PKI.DisabledTSA
+		off = append(off, "tsa")
 	}
 	var doc yaml.Node
 	if err := doc.Encode(&out); err != nil {
