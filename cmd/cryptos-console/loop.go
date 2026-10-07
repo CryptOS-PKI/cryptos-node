@@ -67,6 +67,20 @@ func withMgmtAddrs(snap snapFunc, addrs func() []string) snapFunc {
 	}
 }
 
+// withVersion fills in ver, the console's own build version, when a snapshot
+// carries none. A failed snapshot has no node version, and without this the
+// degraded screen's footer would read "v?". The console ships in the same
+// image as the node, so the two versions agree.
+func withVersion(snap snapFunc, ver string) snapFunc {
+	return func(ctx context.Context) (console.View, error) {
+		v, err := snap(ctx)
+		if v.Version == "" {
+			v.Version = ver
+		}
+		return v, err
+	}
+}
+
 // mismatchHold is how long the reset mismatch screen stays up before the
 // console returns to the dashboard. The screen's wording names it.
 var mismatchHold = 5 * time.Second
