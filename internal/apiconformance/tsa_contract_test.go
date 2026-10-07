@@ -34,13 +34,16 @@ func TestPkiCarriesTsaBlock(t *testing.T) {
 func TestTsaMirrorsNodeConfig(t *testing.T) {
 	fd := nodev1.File_cryptos_node_v1_config_proto
 	assertProtocolShape(t, fd, "Tsa", map[protoreflect.Name]protocolField{
-		"enabled":          {1, protoreflect.BoolKind, false, ""},
-		"http_port":        {2, protoreflect.Uint32Kind, false, ""},
-		"policy_oid":       {3, protoreflect.StringKind, false, ""},
-		"accuracy_ms":      {4, protoreflect.Uint32Kind, false, ""},
-		"rate_limit":       {5, protoreflect.MessageKind, false, "cryptos.node.v1.TsaRateLimit"},
-		"allowed_networks": {6, protoreflect.StringKind, true, ""},
-		"certificate":      {7, protoreflect.MessageKind, false, "cryptos.node.v1.TsaCertificateSettings"},
+		"enabled":              {1, protoreflect.BoolKind, false, ""},
+		"http_port":            {2, protoreflect.Uint32Kind, false, ""},
+		"policy_oid":           {3, protoreflect.StringKind, false, ""},
+		"accuracy_ms":          {4, protoreflect.Uint32Kind, false, ""},
+		"rate_limit":           {5, protoreflect.MessageKind, false, "cryptos.node.v1.TsaRateLimit"},
+		"allowed_networks":     {6, protoreflect.StringKind, true, ""},
+		"certificate":          {7, protoreflect.MessageKind, false, "cryptos.node.v1.TsaCertificateSettings"},
+		"max_sync_age_seconds": {8, protoreflect.Uint32Kind, false, ""},
+		"max_drift_ppm":        {9, protoreflect.Uint32Kind, false, ""},
+		"max_clock_error_ms":   {10, protoreflect.Uint32Kind, false, ""},
 	})
 	assertProtocolShape(t, fd, "TsaRateLimit", map[protoreflect.Name]protocolField{
 		"requests_per_minute": {1, protoreflect.Uint32Kind, false, ""},

@@ -694,3 +694,49 @@ func TestSmallNegativeSlewIsNotBlockedByTheFloor(t *testing.T) {
 		t.Fatalf("status = %v", st)
 	}
 }
+
+func TestAdjustmentRefusedHoldsUntilTheNextGoodSync(t *testing.T) {
+	h := newHarness(t)
+	s := h.add("192.0.2.1", 10*time.Millisecond)
+	h.cfg.QueryTimeout = 20 * time.Millisecond
+	e := h.engine()
+	e.BootSync(context.Background())
+	if e.Status().GetAdjustmentRefused() {
+		t.Fatal("adjustment_refused after a good boot sync")
+	}
+
+	s.set(func(s *fakeServer) { s.drop = true })
+	e.sync(context.Background(), true)
+	if st := e.Status(); st.GetState() != nodev1.TimeSyncState_TIME_SYNC_STATE_UNSYNCED || st.GetAdjustmentRefused() {
+		t.Fatalf("after an unanswered poll: status = %v, want UNSYNCED without adjustment_refused", st)
+	}
+
+	s.set(func(s *fakeServer) { s.drop = false; s.offset = -2 * time.Second })
+	e.sync(context.Background(), true)
+	if !e.Status().GetAdjustmentRefused() {
+		t.Fatalf("status = %v, want adjustment_refused after a refused backwards step", e.Status())
+	}
+
+	s.set(func(s *fakeServer) { s.drop = true })
+	e.sync(context.Background(), true)
+	if !e.Status().GetAdjustmentRefused() {
+		t.Fatal("an unanswered poll cleared adjustment_refused")
+	}
+
+	s.set(func(s *fakeServer) { s.drop = false; s.offset = 20 * time.Millisecond })
+	e.sync(context.Background(), true)
+	if st := e.Status(); st.GetState() != nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED || st.GetAdjustmentRefused() {
+		t.Fatalf("after a good sync: status = %v, want SYNCED without adjustment_refused", st)
+	}
+}
+
+func TestDisagreeingSourcesSetAdjustmentRefused(t *testing.T) {
+	h := newHarness(t)
+	h.add("192.0.2.1", 0)
+	h.add("192.0.2.2", 5*time.Second)
+	e := h.engine()
+	e.BootSync(context.Background())
+	if !e.Status().GetAdjustmentRefused() {
+		t.Fatalf("status = %v, want adjustment_refused", e.Status())
+	}
+}

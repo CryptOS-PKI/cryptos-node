@@ -49,6 +49,16 @@ type TSA struct {
 	AllowedNetworks []string `yaml:"allowed_networks"`
 	// Certificate tunes the TSA certificate's lifetime and rotation.
 	Certificate TSACertificate `yaml:"certificate"`
+	// MaxSyncAgeSeconds is how long after the last good time sync the TSA
+	// keeps stamping while later polls fail. Zero means 3600; at most 86400.
+	MaxSyncAgeSeconds uint32 `yaml:"max_sync_age_seconds"`
+	// MaxDriftPPM is the clock drift rate assumed since the last good sync,
+	// in parts per million. Zero means 100; at most 500.
+	MaxDriftPPM uint32 `yaml:"max_drift_ppm"`
+	// MaxClockErrorMS bounds the estimated clock error (the offset at the
+	// last good sync plus the drift since), in milliseconds. Zero means the
+	// accuracy; it may not be larger than the accuracy.
+	MaxClockErrorMS uint32 `yaml:"max_clock_error_ms"`
 }
 
 // TSARateLimit is a per-client token bucket.
@@ -77,6 +87,10 @@ const (
 	tsaDefaultValidity    = 365
 	tsaMaxValidity        = 365
 	tsaDefaultOverlap     = 30
+	tsaDefaultSyncAge     = 3600
+	tsaMaxSyncAge         = 86400
+	tsaDefaultDriftPPM    = 100
+	tsaMaxDriftPPM        = 500
 	tsaPolicyField        = "config: pki.tsa.policy_oid"
 	tsaAllowedNetworksFld = "config: pki.tsa.allowed_networks"
 )
@@ -88,6 +102,31 @@ func (s *TSA) Accuracy() time.Duration {
 		ms = tsaDefaultAccuracyMS
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+// MaxSyncAge is the effective grace window after the last good time sync.
+func (s *TSA) MaxSyncAge() time.Duration {
+	sec := s.MaxSyncAgeSeconds
+	if sec == 0 {
+		sec = tsaDefaultSyncAge
+	}
+	return time.Duration(sec) * time.Second
+}
+
+// DriftPPM is the effective assumed clock drift rate.
+func (s *TSA) DriftPPM() uint32 {
+	if s.MaxDriftPPM == 0 {
+		return tsaDefaultDriftPPM
+	}
+	return s.MaxDriftPPM
+}
+
+// MaxClockError is the effective bound on the estimated clock error.
+func (s *TSA) MaxClockError() time.Duration {
+	if s.MaxClockErrorMS == 0 {
+		return s.Accuracy()
+	}
+	return time.Duration(s.MaxClockErrorMS) * time.Millisecond
 }
 
 // RequestsPerMinute is the effective steady rate per client.
@@ -206,6 +245,16 @@ func validateTSA(s *TSA) error {
 	if s.AccuracyMS > tsaMaxAccuracyMS {
 		return fmt.Errorf("config: pki.tsa.accuracy_ms: %d is more than the %d maximum", s.AccuracyMS, tsaMaxAccuracyMS)
 	}
+	if s.MaxSyncAgeSeconds > tsaMaxSyncAge {
+		return fmt.Errorf("config: pki.tsa.max_sync_age_seconds: %d is more than the %d maximum", s.MaxSyncAgeSeconds, tsaMaxSyncAge)
+	}
+	if s.MaxDriftPPM > tsaMaxDriftPPM {
+		return fmt.Errorf("config: pki.tsa.max_drift_ppm: %d is more than the %d maximum", s.MaxDriftPPM, tsaMaxDriftPPM)
+	}
+	if s.MaxClockError() > s.Accuracy() {
+		return fmt.Errorf("config: pki.tsa.max_clock_error_ms: %s is more than the %s accuracy tokens claim (accuracy_ms)",
+			s.MaxClockError(), s.Accuracy())
+	}
 	if _, err := s.Networks(); err != nil {
 		return err
 	}
@@ -228,11 +277,14 @@ func tsaToProto(on, off *TSA) *nodev1.Tsa {
 		return &nodev1.Tsa{Enabled: false}
 	}
 	pb := &nodev1.Tsa{
-		Enabled:         on != nil,
-		HttpPort:        s.HTTPPort,
-		PolicyOid:       s.PolicyOID,
-		AccuracyMs:      s.AccuracyMS,
-		AllowedNetworks: s.AllowedNetworks,
+		Enabled:           on != nil,
+		HttpPort:          s.HTTPPort,
+		PolicyOid:         s.PolicyOID,
+		AccuracyMs:        s.AccuracyMS,
+		AllowedNetworks:   s.AllowedNetworks,
+		MaxSyncAgeSeconds: s.MaxSyncAgeSeconds,
+		MaxDriftPpm:       s.MaxDriftPPM,
+		MaxClockErrorMs:   s.MaxClockErrorMS,
 	}
 	if s.RateLimit != (TSARateLimit{}) {
 		pb.RateLimit = &nodev1.TsaRateLimit{RequestsPerMinute: s.RateLimit.RequestsPerMinute, Burst: s.RateLimit.Burst}
@@ -265,6 +317,9 @@ func tsaFromProto(pb *nodev1.Tsa) (on, off *TSA) {
 			ValidityDays:        pb.GetCertificate().GetValidityDays(),
 			RotationOverlapDays: pb.GetCertificate().GetRotationOverlapDays(),
 		},
+		MaxSyncAgeSeconds: pb.GetMaxSyncAgeSeconds(),
+		MaxDriftPPM:       pb.GetMaxDriftPpm(),
+		MaxClockErrorMS:   pb.GetMaxClockErrorMs(),
 	}
 	if pb.GetEnabled() {
 		return s, nil

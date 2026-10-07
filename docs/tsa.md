@@ -53,6 +53,9 @@ pki:
     certificate:
       validity_days: 365                  # 0 is 365, the most
       rotation_overlap_days: 30           # 0 is 30
+    max_sync_age_seconds: 3600            # 0 is 3600, at most 86400
+    max_drift_ppm: 100                    # 0 is 100, at most 500
+    max_clock_error_ms: 1000              # 0 is accuracy_ms, at most accuracy_ms
 ```
 
 `32473` is the example enterprise number from RFC 5612; replace it. A policy
@@ -88,14 +91,32 @@ Put the TSA behind your own TLS front end if your signing tools require an
 ## The clock
 
 A timestamp is only a claim about the time, so the TSA fails closed on its
-clock. Every request is answered `timeNotAvailable` while:
+clock. It trusts the clock for a grace window after the last good time sync,
+so one unanswered poll does not stop it. Every request is answered
+`timeNotAvailable` while any of these holds:
 
-- no time sync has succeeded this boot, or the latest one failed (servers
-  unreachable, servers disagreeing, a step refused);
-- the latest sync measured an offset larger than `accuracy_ms`;
-- the node has no time source at all.
+| Limit | Refused when | Default |
+|---|---|---|
+| `no_good_sync` | no time sync has succeeded this boot, including a node with no time source at all | |
+| `adjustment_refused` | the servers answered the latest round but the clock was not adjusted (they disagreed, or a step was refused); cleared by the next good sync | |
+| `max_sync_age` | the last good sync is older than `max_sync_age_seconds` | 3600 (1 hour) |
+| `max_clock_error` | the estimated clock error is larger than `max_clock_error_ms` | `accuracy_ms` (1 second) |
 
-The reason is in the node log. `pki.allow_unsynced_clock` does not apply to
+The estimated clock error is the offset measured at the last good sync plus
+`max_drift_ppm` parts per million of the time since it. At the defaults, a
+sync that measured 20 ms gives an estimate of 20 ms + 360 ms = 380 ms an hour
+later, inside the 1 second bound. `max_drift_ppm` defaults to 100, a
+conservative bound for a server crystal; 500 is the NTP frequency tolerance.
+
+`max_clock_error_ms` may not be larger than the effective `accuracy_ms`:
+`config apply` refuses it, because a token must never claim more accuracy than
+the clock is trusted to have. Lower it to refuse earlier than the claimed
+accuracy.
+
+The refusal's status string names the limit and its value, for example
+`the TSA time source is not available: max_sync_age=1h0m0s exceeded (1h12m3s)`,
+or just the limit name for `no_good_sync` and `adjustment_refused`. The full
+reason, including the server and the time-sync error, is in the node log. `pki.allow_unsynced_clock` does not apply to
 the TSA. See [time-sync.md](time-sync.md) for the time sources and the
 `Clock:` status line.
 

@@ -165,10 +165,14 @@ func newTSAService(ctx context.Context, cfg *config.Config, d tsaDeps) *tsaServi
 		return nil
 	}
 	responder, err := tsa.NewResponder(certs, tsa.ResponderOptions{
-		Policy:        policy,
-		Accuracy:      t.Accuracy(),
-		TimeAvailable: tsa.ClockGate(d.timeStatus, t.Accuracy()),
-		Logf:          log.Printf,
+		Policy:   policy,
+		Accuracy: t.Accuracy(),
+		TimeAvailable: tsa.ClockGate(d.timeStatus, tsa.ClockLimits{
+			MaxSyncAge:    t.MaxSyncAge(),
+			MaxDriftPPM:   t.DriftPPM(),
+			MaxClockError: t.MaxClockError(),
+		}, time.Now),
+		Logf: log.Printf,
 	})
 	if err != nil {
 		log.Printf("TSA: off this boot: %v", err)
@@ -184,8 +188,9 @@ func newTSAService(ctx context.Context, cfg *config.Config, d tsaDeps) *tsaServi
 		log.Printf("TSA: off this boot: %v", err)
 		return nil
 	}
-	log.Printf("TSA: ready: policy=%s accuracy=%s rate=%d/min burst=%d allowed_networks=%v certificate validity=%s overlap=%s",
-		policy, t.Accuracy(), t.RequestsPerMinute(), t.Burst(), t.AllowedNetworks, t.Certificate.Validity(), t.Certificate.Overlap())
+	log.Printf("TSA: ready: policy=%s accuracy=%s rate=%d/min burst=%d allowed_networks=%v certificate validity=%s overlap=%s max_sync_age=%s max_drift=%dppm max_clock_error=%s",
+		policy, t.Accuracy(), t.RequestsPerMinute(), t.Burst(), t.AllowedNetworks, t.Certificate.Validity(), t.Certificate.Overlap(),
+		t.MaxSyncAge(), t.DriftPPM(), t.MaxClockError())
 	return &tsaService{certs: certs, handler: handler, addr: fmt.Sprintf(":%d", nonzero(t.HTTPPort, defaultTSAHTTPPort))}
 }
 

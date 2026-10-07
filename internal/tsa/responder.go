@@ -103,7 +103,12 @@ func (r *Responder) Respond(ctx context.Context, der []byte) ([]byte, Outcome, e
 
 	if r.opts.TimeAvailable != nil {
 		if err := r.opts.TimeAvailable(); err != nil {
-			return r.reject(FailTimeNotAvailable, err.Error())
+			text := rejectionText[FailTimeNotAvailable]
+			var refusal *ClockRefusal
+			if errors.As(err, &refusal) {
+				text += ": " + refusal.Public()
+			}
+			return r.rejectWith(FailTimeNotAvailable, text, err.Error())
 		}
 	}
 
@@ -134,7 +139,8 @@ func (r *Responder) Respond(ctx context.Context, der []byte) ([]byte, Outcome, e
 }
 
 // rejectionText is the statusString a rejection carries: what the failure
-// bit means, never internal detail, which goes to the log instead.
+// bit means, never internal detail, which goes to the log instead. A clock
+// refusal adds the limit that was exceeded and its value.
 var rejectionText = map[FailureInfo]string{
 	FailBadAlg:              "unsupported message imprint algorithm; use SHA-256, SHA-384 or SHA-512",
 	FailBadRequest:          "request not supported",
@@ -146,7 +152,12 @@ var rejectionText = map[FailureInfo]string{
 }
 
 func (r *Responder) reject(fail FailureInfo, reason string) ([]byte, Outcome, error) {
+	return r.rejectWith(fail, rejectionText[fail], reason)
+}
+
+// rejectWith rejects with statusString text; reason goes to the log only.
+func (r *Responder) rejectWith(fail FailureInfo, text, reason string) ([]byte, Outcome, error) {
 	r.opts.Logf("tsa: rejected with %s: %s", fail, reason)
-	resp, err := rejectionResponse(fail, rejectionText[fail])
+	resp, err := rejectionResponse(fail, text)
 	return resp, Outcome{Fail: fail, Reason: reason}, err
 }

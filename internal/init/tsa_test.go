@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"github.com/CryptOS-PKI/cryptos-node/internal/cms"
@@ -68,7 +69,11 @@ func newTSAFixture(t *testing.T) *tsaFixture {
 			if !f.synced {
 				return &nodev1.TimeSyncStatus{State: nodev1.TimeSyncState_TIME_SYNC_STATE_PENDING}
 			}
-			return &nodev1.TimeSyncStatus{State: nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED, LastOffset: durationpb.New(3 * time.Millisecond)}
+			return &nodev1.TimeSyncStatus{
+				State:      nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED,
+				LastOffset: durationpb.New(3 * time.Millisecond),
+				LastSync:   timestamppb.Now(),
+			}
 		},
 	}
 	return f

@@ -24,9 +24,16 @@
 // section 3.4). A client outside the allowed networks gets 403, and one over
 // its rate limit (a token bucket per IPv4 address or IPv6 /64) gets 429 with
 // Retry-After, both before the request is read. While the clock is not
-// trustworthy (ClockGate: the latest time sync did not succeed, or measured
-// an offset larger than the claimed accuracy) every request is refused with
-// timeNotAvailable and the reason is logged.
+// trustworthy every request is refused with timeNotAvailable, the
+// statusString names the limit that was exceeded and its value, and the full
+// reason is logged. ClockGate trusts the clock for a grace window after the
+// last good time sync, so a single failed poll does not stop the TSA: it
+// refuses before the first good sync of the boot, after a round the servers
+// answered but that was not applied (adjustment_refused), once the last good
+// sync is older than ClockLimits.MaxSyncAge, and once the estimated clock
+// error (EstimatedClockError: the offset at the last good sync plus
+// MaxDriftPPM of the time since) is above MaxClockError, which is never
+// larger than the accuracy tokens claim.
 //
 // # Keys and certificates
 //
