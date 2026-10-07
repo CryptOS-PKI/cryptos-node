@@ -171,7 +171,7 @@ openssl req -in vmca.csr -noout -text | Select-String -CaseSensitive Public-Key
 credential for the signing node. The signing node has its CA, so its
 management certificate is signed by that CA and your root verifies it (see
 [`management-trust.md`](management-trust.md)). The node console confirms it
-with **Mgmt cert  CA-signed, trust the CA**.
+with the **Mgmt cert** line reading **CA-signed, trust the CA**.
 
 > [!NOTE]
 > `cryptosctl` runs on Linux and macOS today. A Windows build is coming.
