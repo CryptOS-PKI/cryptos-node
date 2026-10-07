@@ -84,7 +84,7 @@ func TestConfirmStateIgnoresControlBytes(t *testing.T) {
 
 func TestRenderResetConfirmContent(t *testing.T) {
 	const cols, rows = 64, 24
-	raw := console.RenderResetConfirm("ACME Root CA G1", "Interbor", cols, rows)
+	raw := console.RenderResetConfirm("ACME Root CA G1", "ACME Roo", "v0.1.0", cols, rows)
 	out := stripSGR(raw)
 	// Destructive warning is present and unmistakable.
 	if !strings.Contains(strings.ToUpper(out), "DESTROY") && !strings.Contains(strings.ToUpper(out), "ERASE") {
@@ -95,7 +95,7 @@ func TestRenderResetConfirmContent(t *testing.T) {
 		t.Fatalf("confirm screen does not show the Root CN prompt:\n%s", out)
 	}
 	// The typed buffer is echoed.
-	if !strings.Contains(out, "Interbor") {
+	if !strings.Contains(out, "> ACME Roo") {
 		t.Fatalf("confirm screen does not echo the typed text:\n%s", out)
 	}
 	// The confirm screen also fills the console: full-width lines, rows total.

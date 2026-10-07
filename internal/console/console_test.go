@@ -24,23 +24,22 @@ import (
 	"github.com/CryptOS-PKI/cryptos-node/internal/console"
 )
 
-func TestBannerHasWordmark(t *testing.T) {
-	b := console.Banner()
-	if !strings.Contains(b, "CryptOS") || !strings.Contains(b, "PKI") {
-		t.Fatalf("banner missing wordmark:\n%s", b)
+func TestBannerHasMarkAndVersion(t *testing.T) {
+	b := console.Banner("v0.1.0")
+	if !strings.Contains(b, "\nCryptOS PKI v0.1.0\n") {
+		t.Fatalf("banner missing wordmark and version:\n%s", b)
 	}
-	// The classic shield uses the point at the bottom.
-	if !strings.Contains(b, "'-'") {
-		t.Fatalf("banner missing shield point:\n%s", b)
+	if !strings.HasPrefix(b, ".-----. | .-----.\n") || !strings.Contains(b, "'---------------'\n") {
+		t.Fatalf("banner missing the mark:\n%s", b)
 	}
 }
 
 func TestRendererBanner(t *testing.T) {
 	var buf bytes.Buffer
-	if err := console.NewRenderer(&buf).Banner(); err != nil {
+	if err := console.NewRenderer(&buf).Banner("v0.1.0"); err != nil {
 		t.Fatal(err)
 	}
-	if buf.String() != console.Banner() {
+	if buf.String() != console.Banner("v0.1.0") {
 		t.Fatalf("Banner() writer output differs from Banner() string")
 	}
 }
@@ -51,9 +50,9 @@ func TestRendererStep(t *testing.T) {
 		state console.StepState
 		want  string
 	}{
-		{"state volume", console.StepOK, "   [ok]  state volume\n"},
-		{"network", console.StepRunning, "   [..]  network\n"},
-		{"management API", console.StepFail, "   [!!]  management API\n"},
+		{"state volume", console.StepOK, "[ok]  state volume\n"},
+		{"network", console.StepRunning, "[..]  network\n"},
+		{"management API", console.StepFail, "[!!]  management API\n"},
 	}
 	for _, c := range cases {
 		var buf bytes.Buffer

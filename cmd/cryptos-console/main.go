@@ -30,6 +30,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/CryptOS-PKI/cryptos-node/internal/buildinfo"
 	"github.com/CryptOS-PKI/cryptos-node/internal/console"
 )
 
@@ -44,6 +45,7 @@ func main() {
 	// Query the console size once at startup; the kernel sets a large font so
 	// the frame fills the whole screen. On any failure this falls back to 80x24.
 	cols, rows := consoleSize(int(os.Stdout.Fd()))
+	ver := buildinfo.Get().Version
 
 	// Dial the local socket, retrying on failure so the console comes up even
 	// if it launches before the node has finished exposing the socket. While no
@@ -56,7 +58,7 @@ func main() {
 			c = conn
 			break
 		}
-		renderDegraded(os.Stdout, cols, rows)
+		renderDegraded(os.Stdout, ver, cols, rows)
 		select {
 		case <-ctx.Done():
 			return
@@ -76,11 +78,12 @@ func main() {
 	defer restore()
 	keys := readKeys(ctx, os.Stdin)
 
-	snap := withMgmtAddrs(withMgmtFingerprint(c.Snapshot, *mgmtCert), console.LocalManagementAddrs)
+	snap := withVersion(withMgmtAddrs(withMgmtFingerprint(c.Snapshot, *mgmtCert), console.LocalManagementAddrs), ver)
 	runConsole(ctx, snap, c.Reset, os.Stdout, ticker.C, keys, cols, rows)
 }
 
-// renderDegraded draws a degraded frame, used while the socket is unreachable.
-func renderDegraded(out io.Writer, cols, rows int) {
-	_, _ = io.WriteString(out, console.RenderDashboard(console.View{Degraded: true}, cols, rows))
+// renderDegraded draws a degraded frame, used while the socket is unreachable,
+// with the console's own version in the footer.
+func renderDegraded(out io.Writer, ver string, cols, rows int) {
+	_, _ = io.WriteString(out, console.RenderDashboard(console.View{Degraded: true, Version: ver}, cols, rows))
 }

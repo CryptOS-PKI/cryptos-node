@@ -1,0 +1,11 @@
+CryptOS PKI [ROOT]
+
+CA    Example Root CA G1
+Node  ESTABLISHED
+FM    not enrolled
+TPM   SEALED
+SHA   3F2A 9C41 07BE D5A0
+      6E13 C8F7 2B94 E01D
+      5A6C 83F2 0D47 B9E5
+      1C08 7FA3 D26B 4E90
+^R reset                        v0.1.0

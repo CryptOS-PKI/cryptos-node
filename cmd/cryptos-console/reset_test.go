@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,4 +160,53 @@ func TestResetNotOfferedInMaintenance(t *testing.T) {
 	if called != 0 || strings.Contains(buf.String(), "Type the Root CA CN") {
 		t.Fatalf("Ctrl-R armed reset on the maintenance screen (called=%d):\n%s", called, buf.String())
 	}
+}
+
+// A wrong CN says that nothing was erased, then the console goes back to the
+// dashboard on its own.
+func TestMismatchSaysNothingWasErasedThenReturns(t *testing.T) {
+	const cn = "ACME Root CA G1"
+	old := mismatchHold
+	mismatchHold = 20 * time.Millisecond
+	defer func() { mismatchHold = old }()
+
+	var buf syncBuffer
+	keys := make(chan byte, 64)
+	resetFn := func(_ context.Context, _ string) error { return nil }
+	ctx, cancel := context.WithCancel(context.Background())
+	keys <- 0x12 // ^R
+	for _, b := range []byte("WRONG NAME") {
+		keys <- b
+	}
+	keys <- '\r'
+	done := make(chan struct{})
+	go func() { runConsole(ctx, servingSnap(cn), resetFn, &buf, nil, keys, 64, 24); close(done) }()
+	waitFor(t, func() bool {
+		out := buf.String()
+		i := strings.LastIndex(out, "Does not match. Nothing was erased.")
+		return i >= 0 && strings.Contains(out[i:], "^R  reset (destroys this CA)")
+	})
+	cancel()
+	<-done
+	if !strings.Contains(buf.String(), "> WRONG NAME") {
+		t.Fatalf("mismatch screen does not show what was typed:\n%s", buf.String())
+	}
+}
+
+// syncBuffer is a bytes.Buffer safe to read while the console loop writes.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

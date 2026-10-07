@@ -1,8 +1,9 @@
-// Package console renders the branded boot sequence to the node console: a
-// classic ASCII shield + wordmark banner shown once, and one clean per-step
-// status line ("   [ok]  <name>") for each bring-up stage. It writes to any
-// io.Writer and depends only on the standard library, so it is shared by PID 1
-// (M1, which points it at /dev/console) and the cryptos-console dashboard (M2).
+// Package console renders the node console: the branded boot sequence (the
+// ASCII mark, the wordmark and version, and one status line per bring-up
+// stage, "[ok]  <name>"), and the framed status screens the cryptos-console
+// dashboard draws. It writes to any io.Writer and depends only on the standard
+// library, so it is shared by PID 1 (M1, which points it at /dev/console) and
+// the cryptos-console dashboard (M2).
 package console
 
 /*

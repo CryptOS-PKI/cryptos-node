@@ -1,0 +1,11 @@
+CryptOS PKI [RESET]
+
+WARNING: this DESTROYS this CA.
+Type the Root CA CN to confirm:
+Example Root CA G1
+> Example Root CA G_
+
+
+
+
+Enter confirm  Esc/^C cancel    v0.1.0

@@ -121,7 +121,7 @@ func TestRenderDashboardShowsTheManagementFingerprint(t *testing.T) {
 func TestRenderCompactShowsTheManagementFingerprint(t *testing.T) {
 	fp := console.Fingerprint([]byte("mgmt cert"))
 	plain := stripSGR(console.RenderDashboard(servingView(fp), 30, 10))
-	if !strings.Contains(plain, "Mgmt SHA-256") || !strings.Contains(plain, strings.Split(fp, " ")[15]) {
+	if !strings.Contains(plain, "SHA   "+strings.Split(fp, " ")[0]) || !strings.Contains(plain, strings.Split(fp, " ")[15]) {
 		t.Fatalf("compact render missing the fingerprint:\n%s", plain)
 	}
 }
@@ -193,7 +193,7 @@ func TestRenderDashboardMaintenanceShowsAddressAndFingerprint(t *testing.T) {
 func TestRenderCompactMaintenanceShowsAddressAndFingerprint(t *testing.T) {
 	fp := console.Fingerprint([]byte("maintenance cert"))
 	plain := stripSGR(console.RenderDashboard(maintenanceView(fp, "192.0.2.10"), 30, 10))
-	for _, want := range []string{"Awaiting configuration", "Address", "192.0.2.10", "Mgmt SHA-256", strings.Split(fp, " ")[15]} {
+	for _, want := range []string{"Awaiting configuration", "IP    192.0.2.10", "SHA   " + strings.Split(fp, " ")[0], strings.Split(fp, " ")[15]} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("compact render missing %q:\n%s", want, plain)
 		}
@@ -310,7 +310,7 @@ func TestRenderDashboardAwaitingCeremonyShowsTheFingerprint(t *testing.T) {
 func TestRenderCompactAwaitingCeremonyShowsTheFingerprint(t *testing.T) {
 	fp := console.Fingerprint([]byte("mgmt cert"))
 	plain := stripSGR(console.RenderDashboard(awaitingCeremonyView(fp), 30, 10))
-	for _, want := range []string{"Mgmt SHA-256", strings.Split(fp, " ")[15], "Fetch trust, then start the ceremony"} {
+	for _, want := range []string{"SHA   " + strings.Split(fp, " ")[0], strings.Split(fp, " ")[15], "Fetch trust, then start the ceremony"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("compact render missing %q:\n%s", want, plain)
 		}
@@ -395,7 +395,7 @@ func TestRenderCompactPendingIdentityScreens(t *testing.T) {
 	fp := console.Fingerprint([]byte("mgmt cert"))
 	for _, tc := range pendingIdentityScreens {
 		plain := stripSGR(console.RenderDashboard(tc.view(fp), 30, 10))
-		for _, want := range []string{"Mgmt SHA-256", strings.Split(fp, " ")[15], tc.title, tc.hint} {
+		for _, want := range []string{"SHA   " + strings.Split(fp, " ")[0], strings.Split(fp, " ")[15], tc.title, tc.hint} {
 			if !strings.Contains(plain, want) {
 				t.Fatalf("%s: compact render missing %q:\n%s", tc.name, want, plain)
 			}

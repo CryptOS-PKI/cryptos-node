@@ -70,13 +70,15 @@ func IssuerCN(id *nodev1.Identity) string {
 	return cert.Subject.CommonName
 }
 
-// caIdentityLabel maps a NodeRole enum to its CA identity display label.
+// caIdentityLabel maps a NodeRole enum to its CA identity display label. The
+// labels fit the 15-column label column with a space to spare, which is why
+// the intermediate's label drops "CA".
 func caIdentityLabel(role nodev1.NodeRole) string {
 	switch role {
 	case nodev1.NodeRole_NODE_ROLE_ROOT:
 		return "Root CA"
 	case nodev1.NodeRole_NODE_ROLE_INTERMEDIATE:
-		return "Intermediate CA"
+		return "Intermediate"
 	case nodev1.NodeRole_NODE_ROLE_ISSUING:
 		return "Issuing CA"
 	default:

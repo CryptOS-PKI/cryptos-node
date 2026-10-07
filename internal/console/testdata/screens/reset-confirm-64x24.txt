@@ -1,0 +1,24 @@
+.- CryptOS PKI ---------------------------------------- RESET -.
+|                      .-----. | .-----.                       |
+|                      |       |       |                       |
+|                      |       |       |                       |
+|                      |    .--+--.    |                       |
+|                      |    |#####|    |                       |
+|                      |    |#####|    |                       |
+|                      |    '-----'    |                       |
+|                      |               |                       |
+|                      '---------------'                       |
+|                                                              |
+|               WARNING: this DESTROYS this CA.                |
+|                                                              |
+|              The signing key material is erased              |
+|            and the node reboots to be re-set up.             |
+|                                                              |
+|               Type the Root CA CN to confirm:                |
+|                      Example Root CA G1                      |
+|                                                              |
+|                     > Example Root CA G_                     |
+|                                                              |
+|                                                              |
+|  Enter confirm    Esc/^C cancel                      v0.1.0  |
+'--------------------------------------------------------------'

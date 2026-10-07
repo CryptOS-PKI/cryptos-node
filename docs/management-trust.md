@@ -61,8 +61,9 @@ cryptosctl --endpoint 192.0.2.10:443 --trust root.pem status
 > openssl x509 -in root.pem -noout -fingerprint -sha256
 > ```
 
-The node console marks the switch: under **Mgmt SHA-256** it adds
-**Mgmt cert  CA-signed, trust the CA**.
+The node console marks the switch: under **Mgmt SHA-256** the **Mgmt cert**
+line changes from **self-signed, compare the fingerprint** to **CA-signed,
+trust the CA**.
 
 > [!CAUTION]
 > Do not pin a CA-signed management certificate. `trust fetch` still saves one,
@@ -120,6 +121,12 @@ same form as on the serving dashboard:
 
 Only the maintenance screen also shows an **Address** line: the node's IPv4
 addresses, one per line. An installed node uses the address in its config.
+
+The two screens an adoption compares against say which check they are: under
+the fingerprint, the maintenance screen shows **check 1/2: compare with the
+web console** and the installed Root's **Awaiting ceremony** screen shows
+**check 2/2**. On a console too small for the frame, the compact screen labels
+the fingerprint **SHA** and the address **IP**.
 
 After a Fleet Manager adoption the node installs and reboots, so the
 fingerprint to confirm for the installed node is the one on its console after
