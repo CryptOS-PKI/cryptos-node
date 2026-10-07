@@ -92,7 +92,7 @@ func screenCases() map[string]func(cols, rows int) string {
 		cases[name] = f
 		cases[name+"-64x24"] = f
 	}
-	for _, name := range []string{"maintenance", "awaiting-ceremony", "degraded", "reset-confirm", "reset-mismatch", "resetting"} {
+	for _, name := range []string{"maintenance", "awaiting-ceremony", "awaiting-parent", "ceremony-in-progress", "degraded", "reset-confirm", "reset-mismatch", "resetting"} {
 		cases["compact-"+name] = framed[name]
 	}
 	cases["compact"] = dash(compactRoot)
