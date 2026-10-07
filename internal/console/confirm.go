@@ -16,32 +16,61 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+import (
+	"unicode"
+	"unicode/utf8"
+)
+
 // ConfirmState is the pure state machine behind the reset confirmation prompt.
 // It accumulates the operator's typed Root CN and reports when a line is
 // submitted. It holds no terminal or transport state, so it is fully
 // unit-testable without a tty.
+//
+// The console delivers raw tty bytes one at a time, so a multi-byte UTF-8
+// rune can arrive split across separate Key calls; pending holds the bytes of
+// a rune still being assembled. Typed is compared against the CN with a plain
+// Go string equality (exact rune-for-rune match, no Unicode normalization).
 type ConfirmState struct {
 	// Typed is the operator-entered text so far.
 	Typed string
+
+	// pending holds UTF-8 bytes of a rune not yet complete.
+	pending []byte
 }
 
-// Key feeds one input byte into the state machine and reports whether the line
-// was submitted (Enter). Printable bytes are appended; backspace/delete trims
-// the last byte; CR or LF submits. Any other control byte is ignored so a
-// stray escape sequence cannot corrupt the buffer.
+// Key feeds one raw input byte into the state machine and reports whether the
+// line was submitted (Enter). Any printable rune (unicode.IsPrint) is
+// appended once its full UTF-8 encoding has arrived, including runes split
+// across multiple Key calls; backspace/delete trims the last whole rune, not
+// just its last byte; CR or LF submits. A control byte, an invalid UTF-8
+// encoding, or a non-printable rune is dropped so a stray escape sequence
+// cannot corrupt the buffer.
 func (c *ConfirmState) Key(b byte) (submit bool) {
-	switch {
-	case b == '\r' || b == '\n':
+	switch b {
+	case '\r', '\n':
+		c.pending = nil
 		return true
-	case b == 0x7f || b == 0x08: // DEL or BS
-		if len(c.Typed) > 0 {
-			c.Typed = c.Typed[:len(c.Typed)-1]
+	case 0x7f, 0x08: // DEL or BS: drop any partial rune, trim one whole rune
+		c.pending = nil
+		if c.Typed != "" {
+			r := []rune(c.Typed)
+			c.Typed = string(r[:len(r)-1])
 		}
 		return false
-	case b >= 0x20 && b < 0x7f: // printable ASCII
-		c.Typed += string(b)
-		return false
 	default:
+		c.pending = append(c.pending, b)
+		for len(c.pending) > 0 && utf8.FullRune(c.pending) {
+			r, size := utf8.DecodeRune(c.pending)
+			c.pending = c.pending[size:]
+			if r != utf8.RuneError && unicode.IsPrint(r) {
+				c.Typed += string(r)
+			}
+		}
+		// A malformed stream should never accumulate unboundedly: a complete or
+		// invalid rune is always resolved above within utf8.UTFMax bytes.
+		if len(c.pending) > utf8.UTFMax {
+			c.pending = nil
+		}
 		return false
 	}
 }
