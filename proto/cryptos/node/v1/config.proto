@@ -401,9 +401,13 @@ message ScepRa {
 // Accepted message imprint hashes are SHA-256, SHA-384 and SHA-512. SHA-1, MD5
 // and any other algorithm are refused with failInfo badAlg.
 //
-// The TSA fails closed on its clock: while the node's time sync
-// (NodeStatus.time_sync) has not synced this boot, or its sources disagree,
-// every request is refused with failInfo timeNotAvailable. The clock override
+// The TSA fails closed on its clock: every request is refused with failInfo
+// timeNotAvailable while the node's time sync (NodeStatus.time_sync) has had
+// no good sync this boot, the last good sync is older than
+// max_sync_age_seconds, the estimated clock error is above
+// max_clock_error_ms, or the latest answered round was refused
+// (adjustment_refused, for example because the sources disagree). A single
+// unanswered poll inside those limits does not stop the TSA. The clock override
 // that lets certificate signing run unsynced does not apply here, because a
 // timestamp is nothing but a claim about the time. A node with no time source
 // never syncs, so its TSA refuses every request.
@@ -427,10 +431,10 @@ message Tsa {
   // accuracy_ms is the accuracy the TSA claims in every token (the Accuracy
   // field, RFC 3161 section 2.4.2), in milliseconds either side of genTime.
   // Zero means 1000. Values above 60000 are rejected. The claim is checked
-  // against the clock: while the offset of the latest time sync
-  // (NodeStatus.time_sync.last_offset) is larger than accuracy_ms, the TSA
-  // refuses requests with timeNotAvailable rather than claim an accuracy the
-  // clock does not have.
+  // against the clock: while the estimated clock error (see
+  // max_clock_error_ms) is larger than the bound, the TSA refuses requests
+  // with timeNotAvailable rather than claim an accuracy the clock does not
+  // have.
   uint32 accuracy_ms = 4;
   // rate_limit bounds how often one client may ask for a token. Unset means
   // the defaults below; the limit cannot be switched off.
@@ -443,6 +447,23 @@ message Tsa {
   // certificate configures the TSA certificate's lifetime and rotation. Unset
   // means the defaults below.
   TsaCertificateSettings certificate = 7;
+  // max_sync_age_seconds is how long after the last good time sync
+  // (NodeStatus.time_sync.last_sync) the TSA keeps stamping while later polls
+  // fail. Past it, or before the first good sync of the boot, requests are
+  // refused with timeNotAvailable. Zero means 3600; at most 86400.
+  uint32 max_sync_age_seconds = 8;
+  // max_drift_ppm is the drift rate, in parts per million, assumed for the
+  // clock since the last good sync when estimating its error. Zero means 100,
+  // a conservative bound for a server crystal; at most 500, the NTP frequency
+  // tolerance.
+  uint32 max_drift_ppm = 9;
+  // max_clock_error_ms bounds the estimated clock error: the offset measured
+  // at the last good sync plus max_drift_ppm times the time since it. While
+  // the estimate is larger, requests are refused with timeNotAvailable. Zero
+  // means accuracy_ms. A value larger than the effective accuracy_ms is
+  // rejected: a token must never claim more accuracy than the clock is
+  // trusted to have.
+  uint32 max_clock_error_ms = 10;
 }
 
 // TsaRateLimit is a per-client token bucket. A client is its source IPv4

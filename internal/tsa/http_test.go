@@ -27,8 +27,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/protobuf/types/known/durationpb"
-
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
@@ -278,51 +276,16 @@ func TestNewHandlerRequiresARateLimit(t *testing.T) {
 	}
 }
 
-func syncStatus(state nodev1.TimeSyncState, offset time.Duration) func() *nodev1.TimeSyncStatus {
-	return func() *nodev1.TimeSyncStatus {
-		st := &nodev1.TimeSyncStatus{State: state}
-		if state == nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED {
-			st.LastOffset = durationpb.New(offset)
-		}
-		return st
-	}
-}
-
-func TestClockGate(t *testing.T) {
-	const acc = time.Second
-	for name, tc := range map[string]struct {
-		status func() *nodev1.TimeSyncStatus
-		ok     bool
-	}{
-		"synced, small offset":         {syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED, 20*time.Millisecond), true},
-		"synced, offset at accuracy":   {syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED, -acc), true},
-		"synced, offset over":          {syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED, acc+time.Millisecond), false},
-		"synced, negative offset over": {syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED, -acc-time.Millisecond), false},
-		"never synced":                 {syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_PENDING, 0), false},
-		"latest sync failed":           {syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_UNSYNCED, 0), false},
-		"no time source":               {syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_NOT_CONFIGURED, 0), false},
-		"synced without an offset": {func() *nodev1.TimeSyncStatus {
-			return &nodev1.TimeSyncStatus{State: nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED}
-		}, false},
-		"no status": {func() *nodev1.TimeSyncStatus { return nil }, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			err := ClockGate(tc.status, acc)()
-			if (err == nil) != tc.ok {
-				t.Fatalf("ClockGate = %v, want ok=%t", err, tc.ok)
-			}
-		})
-	}
-}
-
 func TestRespondRefusesWithTimeNotAvailableWhileTheClockIsGated(t *testing.T) {
 	_, s := newTSA(t)
 	var logs strings.Builder
 	r, err := NewResponder(s, ResponderOptions{
-		Policy:        testPolicy,
-		Accuracy:      time.Second,
-		TimeAvailable: ClockGate(syncStatus(nodev1.TimeSyncState_TIME_SYNC_STATE_UNSYNCED, 0), time.Second),
-		Logf:          func(format string, args ...any) { logs.WriteString(format) },
+		Policy:   testPolicy,
+		Accuracy: time.Second,
+		TimeAvailable: ClockGate(func() *nodev1.TimeSyncStatus {
+			return &nodev1.TimeSyncStatus{State: nodev1.TimeSyncState_TIME_SYNC_STATE_PENDING}
+		}, ClockLimits{MaxSyncAge: time.Hour, MaxDriftPPM: 100, MaxClockError: time.Second}, time.Now),
+		Logf: func(format string, args ...any) { logs.WriteString(format) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -332,8 +295,11 @@ func TestRespondRefusesWithTimeNotAvailableWhileTheClockIsGated(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertRejected(t, resp, out, FailTimeNotAvailable)
-	if !strings.Contains(out.Reason, "UNSYNCED") {
+	if !strings.Contains(out.Reason, "no good time sync") {
 		t.Errorf("reason %q does not say why", out.Reason)
+	}
+	if got := statusString(t, resp); !strings.Contains(got, LimitNoGoodSync) {
+		t.Errorf("statusString %q does not name the limit %q", got, LimitNoGoodSync)
 	}
 	if !strings.Contains(logs.String(), "rejected") {
 		t.Error("the refusal is not logged")

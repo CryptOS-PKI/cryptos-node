@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
@@ -31,12 +33,15 @@ import (
 // passing config in exactly one way.
 func validTSA() *TSA {
 	return &TSA{
-		HTTPPort:        3318,
-		PolicyOID:       "1.3.6.1.4.1.32473.1.1",
-		AccuracyMS:      500,
-		RateLimit:       TSARateLimit{RequestsPerMinute: 120, Burst: 20},
-		AllowedNetworks: []string{"192.0.2.0/24", "2001:db8::/32", "198.51.100.7"},
-		Certificate:     TSACertificate{ValidityDays: 200, RotationOverlapDays: 20},
+		HTTPPort:          3318,
+		PolicyOID:         "1.3.6.1.4.1.32473.1.1",
+		AccuracyMS:        500,
+		RateLimit:         TSARateLimit{RequestsPerMinute: 120, Burst: 20},
+		AllowedNetworks:   []string{"192.0.2.0/24", "2001:db8::/32", "198.51.100.7"},
+		Certificate:       TSACertificate{ValidityDays: 200, RotationOverlapDays: 20},
+		MaxSyncAgeSeconds: 1800,
+		MaxDriftPPM:       50,
+		MaxClockErrorMS:   400,
 	}
 }
 
@@ -138,6 +143,63 @@ func TestTSADefaults(t *testing.T) {
 	want := []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24"), netip.MustParsePrefix("2001:db8::/32"), netip.MustParsePrefix("198.51.100.7/32")}
 	if err != nil || !reflect.DeepEqual(nets, want) {
 		t.Errorf("Networks = %v, %v", nets, err)
+	}
+}
+
+func TestValidateTSAClockLimits(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mutate func(*TSA)
+		want   string // empty means accepted
+	}{
+		"sync age at the day maximum":           {mutate: func(s *TSA) { s.MaxSyncAgeSeconds = 86400 }},
+		"sync age over a day":                   {mutate: func(s *TSA) { s.MaxSyncAgeSeconds = 86401 }, want: "pki.tsa.max_sync_age_seconds"},
+		"drift at the NTP tolerance":            {mutate: func(s *TSA) { s.MaxDriftPPM = 500 }},
+		"drift over the NTP tolerance":          {mutate: func(s *TSA) { s.MaxDriftPPM = 501 }, want: "pki.tsa.max_drift_ppm"},
+		"clock error equal to the accuracy":     {mutate: func(s *TSA) { s.MaxClockErrorMS = 500 }},
+		"clock error over the accuracy":         {mutate: func(s *TSA) { s.MaxClockErrorMS = 501 }, want: "pki.tsa.max_clock_error_ms"},
+		"clock error over the default accuracy": {mutate: func(s *TSA) { s.AccuracyMS, s.MaxClockErrorMS = 0, 1001 }, want: "pki.tsa.max_clock_error_ms"},
+		"clock error defaults to the accuracy":  {mutate: func(s *TSA) { s.MaxClockErrorMS = 0 }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg := issuingConfig(t)
+			cfg.PKI.TSA = validTSA()
+			tc.mutate(cfg.PKI.TSA)
+			err := cfg.Validate()
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("Validate = %v, want ok", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Validate = %v, want an error naming %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestTSAClockLimitDefaults(t *testing.T) {
+	var s TSA
+	if s.MaxSyncAge() != time.Hour || s.DriftPPM() != 100 || s.MaxClockError() != time.Second {
+		t.Errorf("defaults = %s, %d ppm, %s; want 1h, 100 ppm, 1s", s.MaxSyncAge(), s.DriftPPM(), s.MaxClockError())
+	}
+	s.AccuracyMS = 250
+	if s.MaxClockError() != 250*time.Millisecond {
+		t.Errorf("MaxClockError = %s, want the accuracy (250ms)", s.MaxClockError())
+	}
+	v := validTSA()
+	if v.MaxSyncAge() != 30*time.Minute || v.DriftPPM() != 50 || v.MaxClockError() != 400*time.Millisecond {
+		t.Errorf("set = %s, %d ppm, %s; want 30m, 50 ppm, 400ms", v.MaxSyncAge(), v.DriftPPM(), v.MaxClockError())
+	}
+}
+
+func TestTSAClockLimitsYAML(t *testing.T) {
+	var s TSA
+	if err := yaml.Unmarshal([]byte("max_sync_age_seconds: 600\nmax_drift_ppm: 20\nmax_clock_error_ms: 300\n"), &s); err != nil {
+		t.Fatal(err)
+	}
+	if s.MaxSyncAgeSeconds != 600 || s.MaxDriftPPM != 20 || s.MaxClockErrorMS != 300 {
+		t.Fatalf("parsed %+v", s)
 	}
 }
 

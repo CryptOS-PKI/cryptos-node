@@ -138,6 +138,7 @@ type Engine struct {
 	lastSync   time.Time
 	stepped    bool
 	lastErr    string
+	refused    bool
 }
 
 // New builds an Engine. It does no I/O.
@@ -211,13 +212,14 @@ func (e *Engine) Status() *nodev1.TimeSyncStatus {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	st := &nodev1.TimeSyncStatus{
-		State:         e.state,
-		Source:        e.cfg.Source,
-		Servers:       append([]string(nil), e.cfg.Servers...),
-		LastServer:    e.lastServer,
-		Stratum:       e.stratum,
-		SteppedAtBoot: e.stepped,
-		LastError:     e.lastErr,
+		State:             e.state,
+		Source:            e.cfg.Source,
+		Servers:           append([]string(nil), e.cfg.Servers...),
+		LastServer:        e.lastServer,
+		Stratum:           e.stratum,
+		SteppedAtBoot:     e.stepped,
+		LastError:         e.lastErr,
+		AdjustmentRefused: e.refused,
 	}
 	if e.hasOffset {
 		st.LastOffset = durationpb.New(e.lastOffset)
@@ -563,7 +565,7 @@ func (e *Engine) apply(samples []Sample, errs map[string]error, boot bool) {
 	}
 	s, err := Combine(samples)
 	if err != nil {
-		e.fail(err.Error(), slog.LevelWarn)
+		e.refuse(err.Error(), slog.LevelWarn)
 		return
 	}
 	abs := absDuration(s.Offset)
@@ -576,7 +578,7 @@ func (e *Engine) apply(samples []Sample, errs map[string]error, boot bool) {
 		// Stepping a live CA backwards would reorder audit and issuance
 		// times. Refuse, and leave the clock for the operator to look at.
 		e.log.Error("refused a backwards clock step on a running node", "server", s.Server, "offset", s.Offset)
-		e.fail(fmt.Sprintf("refused a backwards step of %v on a running node (server %s)", -s.Offset, s.Server), slog.LevelError)
+		e.refuse(fmt.Sprintf("refused a backwards step of %v on a running node (server %s)", -s.Offset, s.Server), slog.LevelError)
 		return
 	}
 	now := e.cfg.Clock.Now()
@@ -587,19 +589,19 @@ func (e *Engine) apply(samples []Sample, errs map[string]error, boot bool) {
 		if floor := e.cfg.Floor.Get(); target.Before(floor) {
 			msg := fmtFloorError(target, floor)
 			e.log.Error("clock step refused: "+msg, "server", s.Server, "offset", s.Offset, "delta", floor.Sub(target))
-			e.fail(msg+" (server "+s.Server+")", slog.LevelError)
+			e.refuse(msg+" (server "+s.Server+")", slog.LevelError)
 			return
 		}
 		if err := e.cfg.Clock.Step(s.Offset); err != nil {
 			e.log.Error("clock step failed", "offset", s.Offset, "err", err)
-			e.fail(fmt.Sprintf("set clock: %v", err), slog.LevelError)
+			e.refuse(fmt.Sprintf("set clock: %v", err), slog.LevelError)
 			return
 		}
 		e.log.Info("clock stepped", "server", s.Server, "offset", s.Offset, "boot", boot)
 	} else {
 		if err := e.cfg.Clock.Slew(s.Offset); err != nil {
 			e.log.Error("clock slew failed", "offset", s.Offset, "err", err)
-			e.fail(fmt.Sprintf("slew clock: %v", err), slog.LevelError)
+			e.refuse(fmt.Sprintf("slew clock: %v", err), slog.LevelError)
 			return
 		}
 		e.log.Debug("clock slewing", "server", s.Server, "offset", s.Offset)
@@ -612,6 +614,16 @@ func (e *Engine) apply(samples []Sample, errs map[string]error, boot bool) {
 		e.log.Error("clock floor: could not record the synced time", "err", err)
 	}
 	e.succeed(s, synced, boot && step)
+}
+
+// refuse records a round in which servers answered but the clock was not
+// adjusted. Unlike a round with no reply it says the clock may be wrong, so it
+// holds until the next good sync.
+func (e *Engine) refuse(msg string, level slog.Level) {
+	e.mu.Lock()
+	e.refused = true
+	e.mu.Unlock()
+	e.fail(msg, level)
 }
 
 func (e *Engine) fail(msg string, level slog.Level) {
@@ -638,6 +650,7 @@ func (e *Engine) succeed(s Sample, at time.Time, stepped bool) {
 	e.stratum = uint32(s.Stratum)
 	e.lastSync = at
 	e.lastErr = ""
+	e.refused = false
 	if stepped {
 		e.stepped = true
 	}

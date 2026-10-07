@@ -162,6 +162,12 @@ message TimeSyncStatus {
   // last_error is why the latest sync attempt did not adjust the clock. Empty
   // after a good sync.
   string last_error = 9;
+  // adjustment_refused is true when the servers answered but the clock was
+  // not adjusted: they disagreed, a backwards step on a running node or a step
+  // behind the clock floor was refused, or setting the clock failed. A round
+  // in which no server answered leaves it as it was, and the next good sync
+  // clears it. The TSA refuses to stamp while it is set.
+  bool adjustment_refused = 10;
 }
 
 // TimeSyncState is the node's clock synchronisation state.
