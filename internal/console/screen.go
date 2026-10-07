@@ -19,6 +19,7 @@ limitations under the License.
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // clearHome resets the screen: clear (2J) then move the cursor home (H).
@@ -93,27 +94,46 @@ func (l segLine) clipped(width int) segLine {
 	return out
 }
 
-// fitText cuts s to width bytes, ending in "..." when anything was cut, so a
-// cut value never reads as the whole value.
+// fitText cuts s to at most width bytes, ending in "..." when anything was
+// cut, so a cut value never reads as the whole value. The cut always lands on
+// a rune boundary, backing up rather than splitting a multi-byte rune, so the
+// result is always valid UTF-8 and never wider than width.
 func fitText(s string, width int) string {
 	if len(s) <= width || width < 4 {
 		return s
 	}
-	return s[:width-3] + "..."
+	return s[:runeBoundary(s, width-3)] + "..."
 }
 
-// chunks splits s into pieces of at most n bytes. A short s, or n < 1, is one
-// piece.
+// chunks splits s into pieces of at most n bytes each, so a multi-byte rune is
+// never split across pieces. A short s, or n < 1, is one piece.
 func chunks(s string, n int) []string {
 	if n < 1 || len(s) <= n {
 		return []string{s}
 	}
 	var out []string
 	for len(s) > n {
-		out = append(out, s[:n])
-		s = s[n:]
+		cut := runeBoundary(s, n)
+		if cut == 0 {
+			_, size := utf8.DecodeRuneInString(s)
+			cut = size
+		}
+		out = append(out, s[:cut])
+		s = s[cut:]
 	}
 	return append(out, s)
+}
+
+// runeBoundary returns the largest index at most limit that starts a rune in
+// s, so slicing s at the result never splits a multi-byte rune.
+func runeBoundary(s string, limit int) int {
+	if limit >= len(s) {
+		return len(s)
+	}
+	for limit > 0 && !utf8.RuneStart(s[limit]) {
+		limit--
+	}
+	return limit
 }
 
 // spaces is an uncolored run of n spaces.

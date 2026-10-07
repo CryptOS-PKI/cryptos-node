@@ -19,6 +19,7 @@ limitations under the License.
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/CryptOS-PKI/cryptos-node/internal/console"
 )
@@ -58,5 +59,47 @@ func TestResetShowsTheWholeCN(t *testing.T) {
 		if !strings.Contains(joined.String(), cn) {
 			t.Fatalf("%dx%d: the CN is not shown whole:\n%s", size.cols, size.rows, strings.Join(lines, "\n"))
 		}
+	}
+}
+
+// A multi-byte rune landing on the chunk boundary is kept whole: every line is
+// valid UTF-8 and the lines rejoin to the exact CN, never a split rune.
+func TestResetSplitsOnARuneBoundaryNotAByteOffset(t *testing.T) {
+	// 61 ASCII bytes, then a 2-byte rune, then more ASCII: at 64x24 the framed
+	// body chunks on 62 bytes (cols-2), so a naive byte slice at offset 62
+	// would fall inside the 2-byte rune's encoding.
+	cn := strings.Repeat("R", 61) + "ñ" + strings.Repeat("S", 5)
+	lines := screenLines(console.RenderResetConfirm(cn, "", screenVer, 64, 24))
+	var joined strings.Builder
+	for i, ln := range lines {
+		if !utf8.ValidString(ln) {
+			t.Fatalf("line %d is not valid UTF-8: %q", i, ln)
+		}
+		joined.WriteString(strings.Trim(ln, "| "))
+	}
+	if !strings.Contains(joined.String(), cn) {
+		t.Fatalf("the CN is not shown whole:\n%s", strings.Join(lines, "\n"))
+	}
+}
+
+// A multi-byte rune landing on the compact dashboard's cut point is kept
+// whole: the line is valid UTF-8 and still ends in "...". The rune is cut
+// along with the rest, rather than split, since it would not fit under the
+// byte budget together with the "...".
+func TestCompactCANameWithMultibyteRuneCutsOnARuneBoundary(t *testing.T) {
+	// 28 ASCII bytes, then a 2-byte rune, then more ASCII: at 38x11 the cut
+	// point is byte 29 (width-3), which lands on the second byte of the
+	// 2-byte rune's encoding, so a naive byte slice would split it.
+	v := servingRoot()
+	v.RootCN = strings.Repeat("A", 28) + "ü" + strings.Repeat("B", 10)
+	lines := screenLines(console.RenderDashboard(v, 38, 11))
+	for i, ln := range lines {
+		if !utf8.ValidString(ln) {
+			t.Fatalf("line %d is not valid UTF-8: %q", i, ln)
+		}
+	}
+	want := "CA    " + strings.Repeat("A", 28) + "..."
+	if lines[1] != want {
+		t.Fatalf("CA line = %q, want %q", lines[1], want)
 	}
 }
