@@ -76,12 +76,17 @@ func resetScreen(rootCN, typed, ver string, cols int, mismatch bool) screen {
 		center(seg{resetWarning, sgrBoldRed}), blank(),
 		center(seg{"The signing key material is erased", ""}),
 		center(seg{"and the node reboots to be re-set up.", ""}), blank(),
-		center(seg{resetPrompt, ""}), center(seg{rootCN, sgrBoldYellow}), blank(),
-		center(seg{entry, sgrBoldWhite}),
+		center(seg{resetPrompt, ""}),
 	}
-	compact := []segLine{
-		{{resetWarning, sgrBoldRed}}, {{resetPrompt, ""}}, {{rootCN, sgrBoldYellow}}, {{entry, sgrBoldWhite}},
+	for _, c := range chunks(rootCN, cols-2) {
+		body = append(body, center(seg{c, sgrBoldYellow}))
 	}
+	body = append(body, blank(), center(seg{entry, sgrBoldWhite}))
+	compact := []segLine{{{resetWarning, sgrBoldRed}}, {{resetPrompt, ""}}}
+	for _, c := range chunks(rootCN, cols) {
+		compact = append(compact, segLine{{c, sgrBoldYellow}})
+	}
+	compact = append(compact, segLine{{entry, sgrBoldWhite}})
 	if mismatch {
 		body = append(body, center(seg{resetMismatch, sgrBoldYellow}), center(seg{resetBack, sgrDim}))
 		compact = append(compact, segLine{{resetMismatch, sgrBoldYellow}}, segLine{{resetBack, sgrDim}})

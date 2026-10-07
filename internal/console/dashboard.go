@@ -139,12 +139,14 @@ const (
 // compact fallback when the console is smaller than the frame needs. Color is
 // applied over zero-width SGR escapes, so all layout math runs on plain text.
 func RenderDashboard(v View, cols, rows int) string {
-	return dashboardScreen(v).render(cols, rows)
+	return dashboardScreen(v, cols).render(cols, rows)
 }
 
 // dashboardScreen builds the screen for the view's state: a pending identity,
-// maintenance, degraded, or serving.
-func dashboardScreen(v View) screen {
+// maintenance, degraded, or serving. cols bounds the CA name on the compact
+// screen, the one compact value with no length limit of its own.
+func dashboardScreen(v View, cols int) screen {
+	compactCA := fitText(v.RootCN, cols-compactLabelWidth)
 	ver := segLine{{version(v), sgrDim}}
 	reset := segLine{{resetHint, sgrBoldRed}}
 	compactReset := segLine{{compactResetHint, sgrBoldRed}}
@@ -185,7 +187,7 @@ func dashboardScreen(v View) screen {
 			field("Node", degradedStatus, sgrBoldYellow),
 		}
 		compact := []segLine{
-			compactField("CA", v.RootCN, sgrBoldWhite),
+			compactField("CA", compactCA, sgrBoldWhite),
 			compactField("Node", degradedStatus, sgrBoldYellow),
 		}
 		return screen{tag: roleTag(v), body: body, compact: compact, footL: reset, compactFoot: compactReset, footR: ver}
@@ -203,7 +205,7 @@ func dashboardScreen(v View) screen {
 			body = append(append(body, fingerprintItems(v.MgmtFingerprint)...), mgmtCertItem(v))
 		}
 		compact := []segLine{
-			compactField("CA", v.RootCN, sgrBoldWhite),
+			compactField("CA", compactCA, sgrBoldWhite),
 			compactField("Node", v.NodeStatus, statusColor(v.NodeStatus)),
 			compactField("FM", fleet, statusColor(fleet)),
 			compactField("TPM", v.TPM, statusColor(v.TPM)),

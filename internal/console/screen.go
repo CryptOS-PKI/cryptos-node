@@ -93,6 +93,29 @@ func (l segLine) clipped(width int) segLine {
 	return out
 }
 
+// fitText cuts s to width bytes, ending in "..." when anything was cut, so a
+// cut value never reads as the whole value.
+func fitText(s string, width int) string {
+	if len(s) <= width || width < 4 {
+		return s
+	}
+	return s[:width-3] + "..."
+}
+
+// chunks splits s into pieces of at most n bytes. A short s, or n < 1, is one
+// piece.
+func chunks(s string, n int) []string {
+	if n < 1 || len(s) <= n {
+		return []string{s}
+	}
+	var out []string
+	for len(s) > n {
+		out = append(out, s[:n])
+		s = s[n:]
+	}
+	return append(out, s)
+}
+
 // spaces is an uncolored run of n spaces.
 func spaces(n int) seg { return seg{strings.Repeat(" ", max(0, n)), ""} }
 
