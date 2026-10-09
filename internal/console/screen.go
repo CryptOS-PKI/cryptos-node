@@ -191,12 +191,12 @@ type screen struct {
 }
 
 // render draws the screen at cols x rows: framed when the console is large
-// enough, compact below that.
+// enough to hold the whole body without clipping it, compact below that.
 func (s screen) render(cols, rows int) string {
 	if s.tagColor == "" {
 		s.tagColor = sgrBoldWhite
 	}
-	if cols < minCols || rows < minRows {
+	if cols < minCols || rows < minRows || len(s.bodyLines(cols-2)) > rows-3 {
 		return s.renderCompact(cols, rows)
 	}
 	return s.renderFramed(cols, rows)
@@ -209,10 +209,11 @@ const (
 	minRows = 12
 )
 
-// renderFramed draws the border with the wordmark and tag, the mark and body
-// in the rows above the footer, and the footer just above the bottom border.
-func (s screen) renderFramed(cols, rows int) string {
-	inner := cols - 2
+// bodyLines lays the screen's body items out as rows within a frame inner
+// columns wide. This is the part of the framed layout that never gets
+// dropped or shortened, so its row count against rows-3 (the interior rows
+// above the footer) is what decides whether the framed screen fits at all.
+func (s screen) bodyLines(inner int) []segLine {
 	off := max(1, (inner-fieldWidth)/2)
 	room := min(fieldWidth-labelWidth, inner-off-labelWidth)
 
@@ -220,6 +221,14 @@ func (s screen) renderFramed(cols, rows int) string {
 	for _, it := range s.body {
 		body = append(body, it.lines(inner, off, room)...)
 	}
+	return body
+}
+
+// renderFramed draws the border with the wordmark and tag, the mark and body
+// in the rows above the footer, and the footer just above the bottom border.
+func (s screen) renderFramed(cols, rows int) string {
+	inner := cols - 2
+	body := s.bodyLines(inner)
 	content := append(markLines(inner), segLine{})
 	content = append(content, body...)
 
