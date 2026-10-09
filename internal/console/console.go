@@ -103,3 +103,14 @@ func (r *Renderer) Step(name string, state StepState) error {
 	_, err := fmt.Fprintf(r.w, "[%s]  %s\n", state.marker(), name)
 	return err
 }
+
+// Shutdown clears the screen and writes a branded teardown message -- the
+// mark and version, then message (for example "Rebooting..." or "Shutting
+// down...") -- matching the boot banner's style. It is the last thing drawn
+// on the console before the node restarts or powers off, so an admin
+// watching it sees why the dashboard stopped updating instead of it just
+// freezing on its last frame.
+func (r *Renderer) Shutdown(version, message string) error {
+	_, err := io.WriteString(r.w, clearHome+Banner(version)+message+"\n")
+	return err
+}

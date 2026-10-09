@@ -43,6 +43,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/CryptOS-PKI/cryptos-node/internal/buildinfo"
+	"github.com/CryptOS-PKI/cryptos-node/internal/console"
 	"github.com/CryptOS-PKI/cryptos-node/internal/reset"
 )
 
@@ -66,6 +68,16 @@ func (a ShutdownAction) String() string {
 	return "reboot"
 }
 
+// consoleMessage is the branded line shown on the console while the action
+// runs, matching the boot banner's style.
+func (a ShutdownAction) consoleMessage() string {
+	if a == ShutdownPowerOff {
+		return "Shutting down..."
+	}
+
+	return "Rebooting..."
+}
+
 // rebootRPCDelay lets the RebootResponse flush before the listeners stop,
 // the same grace the reset and image-activate paths give their replies.
 const rebootRPCDelay = 2 * time.Second
@@ -86,6 +98,10 @@ type shutdownRequests struct {
 	// watchdog arms the teardown watchdog for the chosen action.
 	watchdog func(ShutdownAction)
 
+	// announce tells the console the chosen action, so the screen says what
+	// is happening instead of freezing on its last frame.
+	announce func(ShutdownAction)
+
 	mu     sync.Mutex
 	chosen ShutdownAction
 }
@@ -99,7 +115,22 @@ func newShutdownRequests() *shutdownRequests {
 				forceHalt(a)
 			})
 		},
+		announce: announceShutdown,
 	}
+}
+
+// announceShutdown writes a branded status line to the console saying the
+// node is rebooting or shutting down. Best-effort: a console that cannot be
+// opened (a dev host, or one that is already gone) does not block shutdown.
+func announceShutdown(a ShutdownAction) {
+	cons, err := openConsole()
+	if err != nil {
+		return
+	}
+	if c, ok := cons.(io.Closer); ok {
+		defer func() { _ = c.Close() }()
+	}
+	_ = console.NewRenderer(cons).Shutdown(buildinfo.Get().Version, a.consoleMessage())
 }
 
 // Request asks for a shutdown. It never blocks.
@@ -123,6 +154,9 @@ func (r *shutdownRequests) Wait(ctx context.Context) ShutdownAction {
 	r.mu.Lock()
 	r.chosen = a
 	r.mu.Unlock()
+	if r.announce != nil {
+		r.announce(a)
+	}
 	if r.watchdog != nil {
 		r.watchdog(a)
 	}

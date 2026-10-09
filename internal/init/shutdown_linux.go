@@ -43,6 +43,11 @@ const forceSyncTimeout = 10 * time.Second
 // within forceSyncTimeout and then restarts or powers off the node directly
 // with reboot(2), skipping whatever part of the orderly teardown has hung.
 func forceHalt(action ShutdownAction) {
+	// The orderly path already announced this when it was chosen, but the
+	// console dashboard may have kept redrawing over it while the teardown
+	// hung, so say it again right before the forced reboot.
+	announceShutdown(action)
+
 	synced := make(chan struct{})
 	go func() {
 		unix.Sync()

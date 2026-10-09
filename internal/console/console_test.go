@@ -44,6 +44,23 @@ func TestRendererBanner(t *testing.T) {
 	}
 }
 
+func TestRendererShutdown(t *testing.T) {
+	var buf bytes.Buffer
+	if err := console.NewRenderer(&buf).Shutdown("v0.1.0", "Rebooting..."); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+	if !strings.HasPrefix(got, "\x1b[2J\x1b[H") {
+		t.Fatalf("Shutdown did not clear the screen first:\n%q", got)
+	}
+	if !strings.Contains(got, console.Banner("v0.1.0")) {
+		t.Fatalf("Shutdown missing the boot banner's mark and version:\n%s", got)
+	}
+	if !strings.HasSuffix(got, "Rebooting...\n") {
+		t.Fatalf("Shutdown missing the message:\n%s", got)
+	}
+}
+
 func TestRendererStep(t *testing.T) {
 	cases := []struct {
 		name  string
