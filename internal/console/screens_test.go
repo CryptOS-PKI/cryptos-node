@@ -157,13 +157,16 @@ func TestScreensMatchTheDesign(t *testing.T) {
 }
 
 // Every framed screen fills the console exactly, at the sizes the design
-// draws and at a larger and the smallest framed console.
+// draws and at a larger size. The smallest framed console, 40x12, is not
+// included here: whether a screen is framed or falls back to compact at that
+// size depends on how much the view has to show, which
+// TestSmallConsoleNeverClipsTheFingerprint covers instead.
 func TestFramedScreensFillTheConsole(t *testing.T) {
 	for name, render := range screenCases() {
 		if strings.HasPrefix(name, "compact") || strings.HasPrefix(name, "boot") || strings.HasSuffix(name, "-64x24") {
 			continue
 		}
-		for _, size := range []struct{ cols, rows int }{{80, 25}, {64, 24}, {100, 37}, {40, 12}} {
+		for _, size := range []struct{ cols, rows int }{{80, 25}, {64, 24}, {100, 37}} {
 			lines := screenLines(render(size.cols, size.rows))
 			if len(lines) != size.rows {
 				t.Fatalf("%s %dx%d: %d lines", name, size.cols, size.rows, len(lines))
@@ -178,6 +181,44 @@ func TestFramedScreensFillTheConsole(t *testing.T) {
 				t.Fatalf("%s %dx%d: footer has no version: %q", name, size.cols, size.rows, lines[size.rows-2])
 			}
 		}
+	}
+}
+
+// At 40x12 -- the framed minimum -- a screen with more to show than the frame
+// has room for falls back to the compact layout instead of clipping, so every
+// state still shows the whole fingerprint, a text label for it, and the
+// version exactly once.
+func TestSmallConsoleNeverClipsTheFingerprint(t *testing.T) {
+	const cols, rows = 40, 12
+	cases := map[string]struct {
+		view console.View
+		fp   string
+	}{
+		"serving-root":         {servingRoot(), screenFP},
+		"maintenance":          {console.View{Maintenance: true, Version: screenVer, MgmtFingerprint: maintFP, MgmtAddrs: []string{"192.0.2.10", "198.51.100.24"}}, maintFP},
+		"awaiting-ceremony":    {console.View{Role: "ROOT", TPM: "SEALED", Version: screenVer, Maintenance: true, AwaitingCeremony: true, MgmtFingerprint: screenFP}, screenFP},
+		"awaiting-parent":      {console.View{Role: "ISSUING", TPM: "SEALED", Version: screenVer, Maintenance: true, AwaitingParentCert: true, MgmtFingerprint: screenFP, MgmtCASigned: true}, screenFP},
+		"ceremony-in-progress": {console.View{Role: "ROOT", TPM: "SEALED", Version: screenVer, Maintenance: true, CeremonyInProgress: true, MgmtFingerprint: screenFP}, screenFP},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			lines := screenLines(console.RenderDashboard(tc.view, cols, rows))
+			plain := strings.Join(lines, "\n")
+			if len(lines) != rows {
+				t.Fatalf("%s: %d lines, want %d:\n%s", name, len(lines), rows, plain)
+			}
+			for _, g := range strings.Fields(tc.fp) {
+				if !strings.Contains(plain, g) {
+					t.Fatalf("%s: fingerprint group %q missing:\n%s", name, g, plain)
+				}
+			}
+			if !strings.Contains(plain, "SHA") {
+				t.Fatalf("%s: no fingerprint label:\n%s", name, plain)
+			}
+			if n := strings.Count(plain, screenVer); n != 1 {
+				t.Fatalf("%s: version shown %d times, want 1:\n%s", name, n, plain)
+			}
+		})
 	}
 }
 
