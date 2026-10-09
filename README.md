@@ -126,7 +126,7 @@ cryptosctl --endpoint pki-root.example:443 reboot --confirm "Example Root CA G1"
 cryptosctl --endpoint pki-root.example:443 reboot --confirm "Example Root CA G1" --power-off
 ```
 
-`--confirm` must be the node's CA common name, and over mTLS the call needs the bootstrap admin client certificate. The node replies, then stops its listeners, closes etcd and the audit log, unmounts and locks the state volume, and restarts (or powers off). A hard reset skips all of that. The management certificate gets a new key on every boot, so refresh a pinned `--trust` afterwards; a `--trust` that holds the CA keeps working.
+`--confirm` must be the node's CA common name, and over mTLS the call needs the bootstrap admin client certificate. The node replies, then stops its listeners, closes etcd and the audit log, unmounts and locks the state volume, and restarts (or powers off). A hard reset skips all of that. The management certificate gets a new key on every boot, so refresh a pinned `--trust` afterwards; a `--trust` that holds the CA keeps working. As soon as a reboot or power-off is chosen, by any of the paths below, the console shows a branded "Rebooting..." or "Shutting down..." screen in place of the dashboard.
 
 The same orderly shutdown also runs, without the API, when:
 

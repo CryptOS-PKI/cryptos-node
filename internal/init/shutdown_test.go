@@ -31,9 +31,11 @@ import (
 	"github.com/CryptOS-PKI/cryptos-node/internal/reset"
 )
 
-// testShutdownRequests is newShutdownRequests with the teardown watchdog
-// replaced: a real one would reboot the test host after a minute. armed, when
-// non-nil, records every action the watchdog was armed for.
+// testShutdownRequests is newShutdownRequests with the teardown watchdog and
+// the console announcement replaced: a real watchdog would reboot the test
+// host after a minute, and a real announcement would write to the test
+// host's actual console. armed, when non-nil, records every action the
+// watchdog was armed for.
 func testShutdownRequests(armed *[]ShutdownAction) *shutdownRequests {
 	sd := newShutdownRequests()
 	sd.watchdog = func(a ShutdownAction) {
@@ -41,6 +43,7 @@ func testShutdownRequests(armed *[]ShutdownAction) *shutdownRequests {
 			*armed = append(*armed, a)
 		}
 	}
+	sd.announce = func(ShutdownAction) {}
 
 	return sd
 }
@@ -87,6 +90,32 @@ func TestShutdownRequests_FirstRequestWins(t *testing.T) {
 func TestShutdownRequests_DefaultsToReboot(t *testing.T) {
 	if got := testShutdownRequests(nil).Action(); got != ShutdownReboot {
 		t.Fatalf("Action = %v, want %v", got, ShutdownReboot)
+	}
+}
+
+// Wait announces the chosen action to the console as soon as it is chosen,
+// before arming the watchdog, so an admin watching the screen is told what
+// is about to happen even if the teardown that follows hangs.
+func TestShutdownRequests_WaitAnnouncesTheAction(t *testing.T) {
+	sd := testShutdownRequests(nil)
+	var announced []ShutdownAction
+	sd.announce = func(a ShutdownAction) { announced = append(announced, a) }
+	sd.Request(ShutdownPowerOff)
+
+	sd.Wait(context.Background())
+	if !slices.Equal(announced, []ShutdownAction{ShutdownPowerOff}) {
+		t.Fatalf("announced = %v, want [%v]", announced, ShutdownPowerOff)
+	}
+}
+
+// The console message names the action in the same words an admin sees
+// elsewhere in the UI, not the log's terse "reboot"/"power-off".
+func TestShutdownAction_ConsoleMessage(t *testing.T) {
+	if got, want := ShutdownReboot.consoleMessage(), "Rebooting..."; got != want {
+		t.Fatalf("ShutdownReboot.consoleMessage() = %q, want %q", got, want)
+	}
+	if got, want := ShutdownPowerOff.consoleMessage(), "Shutting down..."; got != want {
+		t.Fatalf("ShutdownPowerOff.consoleMessage() = %q, want %q", got, want)
 	}
 }
 
