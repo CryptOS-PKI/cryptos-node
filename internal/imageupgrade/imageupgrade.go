@@ -97,6 +97,13 @@ type FS interface {
 	Remove(rel string) error
 	Rename(from, to string) error
 	WriteFile(rel string, data []byte) error
+	// Sync fsyncs the ESP's mounted directory. A vfat rename is only a
+	// directory-entry update; WriteFile's own fsync covers a file's data, not
+	// that entry. Without this, a power loss right after the rename that swaps
+	// the active image can leave the directory entry unresolved -- neither
+	// surely the old image nor surely the new one -- rather than one of the
+	// two, which is what every caller of Stage and Rollback relies on.
+	Sync() error
 }
 
 // Stager installs verified images into the ESP slots.
@@ -198,6 +205,9 @@ func (s *Stager) Stage(image, signature []byte) (Status, error) {
 	if err := s.fs.Rename(incomingRelPath, ActiveRelPath); err != nil {
 		return Status{}, fmt.Errorf("imageupgrade: activate the incoming image: %w", err)
 	}
+	if err := s.fs.Sync(); err != nil {
+		return Status{}, fmt.Errorf("imageupgrade: sync the ESP directory: %w", err)
+	}
 
 	return s.Status()
 }
@@ -222,6 +232,9 @@ func (s *Stager) Rollback() error {
 	}
 	if err := s.fs.Rename(incomingRelPath, ActiveRelPath); err != nil {
 		return fmt.Errorf("imageupgrade: restore the previous image: %w", err)
+	}
+	if err := s.fs.Sync(); err != nil {
+		return fmt.Errorf("imageupgrade: sync the ESP directory: %w", err)
 	}
 
 	return nil
