@@ -30,13 +30,17 @@ import (
 
 var gateNow = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
-// goodSync is a time-sync status whose last good sync was age ago and
-// measured offset. state is what the latest round left behind.
-func goodSync(state nodev1.TimeSyncState, offset, age time.Duration) *nodev1.TimeSyncStatus {
+// goodSync is a time-sync status whose last good sync was age ago, with
+// syncErr as both the raw measured offset and the post-correction error
+// estimate (the two coincide for a slew, or a step whose residual happens to
+// match what was measured; see the gate tests below for a step where they
+// differ). state is what the latest round left behind.
+func goodSync(state nodev1.TimeSyncState, syncErr, age time.Duration) *nodev1.TimeSyncStatus {
 	return &nodev1.TimeSyncStatus{
-		State:      state,
-		LastOffset: durationpb.New(offset),
-		LastSync:   timestamppb.New(gateNow.Add(-age)),
+		State:         state,
+		LastOffset:    durationpb.New(syncErr),
+		LastSyncError: durationpb.New(syncErr),
+		LastSync:      timestamppb.New(gateNow.Add(-age)),
 	}
 }
 
@@ -93,6 +97,18 @@ func TestClockGate(t *testing.T) {
 			return st
 		}(), limit: LimitAdjustmentRefused},
 		"last sync after now counts as fresh": {status: goodSync(synced, 0, -time.Minute)},
+		"a boot step's large raw offset does not by itself refuse": {status: &nodev1.TimeSyncStatus{
+			State:         synced,
+			LastOffset:    durationpb.New(5 * time.Second),
+			LastSyncError: durationpb.New(10 * time.Millisecond),
+			LastSync:      timestamppb.New(gateNow),
+		}},
+		"a genuinely large post-correction error still refuses despite a small raw offset": {status: &nodev1.TimeSyncStatus{
+			State:         synced,
+			LastOffset:    durationpb.New(20 * time.Millisecond),
+			LastSyncError: durationpb.New(1500 * time.Millisecond),
+			LastSync:      timestamppb.New(gateNow),
+		}, limit: LimitMaxClockError},
 	} {
 		t.Run(name, func(t *testing.T) {
 			l := tc.limits

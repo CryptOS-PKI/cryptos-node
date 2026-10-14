@@ -147,8 +147,10 @@ message TimeSyncStatus {
   // sync, as queried (a hostname or an IPv4 literal). Empty until the first
   // good sync.
   string last_server = 4;
-  // last_offset is the clock offset measured at the latest good sync: the
-  // server's time minus the node's. Unset until the first good sync.
+  // last_offset is the clock offset measured at the latest good sync, before
+  // any correction: the server's time minus the node's. A step corrects most
+  // of it at once, so after a step this is not how far off the clock still
+  // is; see last_sync_error for that. Unset until the first good sync.
   google.protobuf.Duration last_offset = 5;
   // stratum is the stratum of last_server at the latest good sync. Zero until
   // the first good sync.
@@ -168,6 +170,15 @@ message TimeSyncStatus {
   // in which no server answered leaves it as it was, and the next good sync
   // clears it. The TSA refuses to stamp while it is set.
   bool adjustment_refused = 10;
+  // last_sync_error is the clock's estimated error right after the latest
+  // good sync: for a step, the residual the correction left behind (about
+  // root distance plus half the round-trip delay, the same figure passed to
+  // the kernel's MarkSynced); for a slew, the full measured offset, since a
+  // slew has not caught up to it yet. Unlike last_offset, which keeps the
+  // offset as measured before any correction, this is what the clock is
+  // actually still off by, and is what gates time-stamping. Unset until the
+  // first good sync.
+  google.protobuf.Duration last_sync_error = 11;
 }
 
 // TimeSyncState is the node's clock synchronisation state.

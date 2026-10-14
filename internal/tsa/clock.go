@@ -84,29 +84,30 @@ func (r *ClockRefusal) Public() string {
 }
 
 // EstimatedClockError is how far the clock may be off: the magnitude of the
-// offset measured at the last good sync plus ppm parts per million of the
-// time since it.
-func EstimatedClockError(offset, age time.Duration, ppm uint32) time.Duration {
-	return offset.Abs() + age/1_000_000*time.Duration(ppm) + age%1_000_000*time.Duration(ppm)/1_000_000
+// clock's error estimate at the last good sync plus ppm parts per million of
+// the time since it.
+func EstimatedClockError(syncErr, age time.Duration, ppm uint32) time.Duration {
+	return syncErr.Abs() + age/1_000_000*time.Duration(ppm) + age%1_000_000*time.Duration(ppm)/1_000_000
 }
 
 // ClockGate returns the TSA's clock check over the node's time-sync status.
 // The clock may be stamped while the last good sync of this boot is no
 // older than MaxSyncAge and the estimated clock error (EstimatedClockError
-// over the offset it measured and the time since) is no larger than
-// MaxClockError. A poll that no server answered does not refuse on its own,
-// so one lost packet does not stop the TSA; a round that was answered but
-// not applied (adjustment_refused: the sources disagree, or a step was
-// refused) does, until the next good sync. A node with no time source never
-// syncs and is always refused. Unlike certificate signing there is no
-// override: a timestamp is nothing but a claim about the time.
+// over the clock's post-correction error estimate at that sync and the time
+// since) is no larger than MaxClockError. A poll that no server answered does
+// not refuse on its own, so one lost packet does not stop the TSA; a round
+// that was answered but not applied (adjustment_refused: the sources
+// disagree, or a step was refused) does, until the next good sync. A node
+// with no time source never syncs and is always refused. Unlike certificate
+// signing there is no override: a timestamp is nothing but a claim about the
+// time.
 func ClockGate(status func() *nodev1.TimeSyncStatus, limits ClockLimits, now func() time.Time) func() error {
 	return func() error {
 		st := status()
 		if st == nil {
 			return &ClockRefusal{Limit: LimitNoGoodSync, Detail: "the time sync status is unavailable"}
 		}
-		if st.GetLastSync() == nil || st.GetLastOffset() == nil {
+		if st.GetLastSync() == nil || st.GetLastSyncError() == nil {
 			return &ClockRefusal{Limit: LimitNoGoodSync, Detail: st.GetLastError()}
 		}
 		if st.GetAdjustmentRefused() {
@@ -116,7 +117,7 @@ func ClockGate(status func() *nodev1.TimeSyncStatus, limits ClockLimits, now fun
 		if age > limits.MaxSyncAge {
 			return &ClockRefusal{Limit: LimitMaxSyncAge, Value: age.Round(time.Millisecond).String(), Bound: limits.MaxSyncAge.String()}
 		}
-		if est := EstimatedClockError(st.GetLastOffset().AsDuration(), age, limits.MaxDriftPPM); est > limits.MaxClockError {
+		if est := EstimatedClockError(st.GetLastSyncError().AsDuration(), age, limits.MaxDriftPPM); est > limits.MaxClockError {
 			return &ClockRefusal{Limit: LimitMaxClockError, Value: est.String(), Bound: limits.MaxClockError.String()}
 		}
 		return nil

@@ -96,12 +96,14 @@ type fakeServer struct {
 	clock    *fakeClock
 	requests atomic.Int32
 
-	mu      sync.Mutex
-	offset  time.Duration
-	stratum uint8
-	leap    uint8
-	kiss    string
-	drop    bool
+	mu             sync.Mutex
+	offset         time.Duration
+	stratum        uint8
+	leap           uint8
+	kiss           string
+	drop           bool
+	rootDelay      Short
+	rootDispersion Short
 }
 
 func newFakeServer(t *testing.T, clock *fakeClock, offset time.Duration) *fakeServer {
@@ -110,10 +112,16 @@ func newFakeServer(t *testing.T, clock *fakeClock, offset time.Duration) *fakeSe
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	s := &fakeServer{conn: conn, clock: clock, offset: offset, stratum: 2}
+	s := &fakeServer{conn: conn, clock: clock, offset: offset, stratum: 2, rootDelay: 0x00000100, rootDispersion: 0x00000100}
 	t.Cleanup(func() { _ = conn.Close() })
 	go s.serve()
 	return s
+}
+
+// shortFrom converts d to the NTP 16.16 fixed-point form used for root delay
+// and root dispersion.
+func shortFrom(d time.Duration) Short {
+	return Short(uint64(d) * 65536 / uint64(time.Second))
 }
 
 func (s *fakeServer) set(fn func(*fakeServer)) {
@@ -136,6 +144,7 @@ func (s *fakeServer) serve() {
 		}
 		s.mu.Lock()
 		drop, off, stratum, leap, kiss := s.drop, s.offset, s.stratum, s.leap, s.kiss
+		rootDelay, rootDispersion := s.rootDelay, s.rootDispersion
 		s.mu.Unlock()
 		if drop {
 			continue
@@ -143,7 +152,7 @@ func (s *fakeServer) serve() {
 		now := TimestampFromTime(s.clock.Now().Add(off))
 		reply := Header{
 			Leap: leap, Version: 4, Mode: ModeServer, Stratum: stratum,
-			RootDelay: 0x00000100, RootDispersion: 0x00000100,
+			RootDelay: rootDelay, RootDispersion: rootDispersion,
 			Origin: req.Transmit, Receive: now, Transmit: now,
 		}
 		if kiss != "" {
@@ -289,6 +298,44 @@ func TestBootSyncStepsALargeOffset(t *testing.T) {
 	}
 }
 
+// A boot step corrects the clock down to roughly its root distance, so the
+// TSA's clock gate (which reads GetLastSyncError, not the raw offset the step
+// was asked to correct) sees it as trustworthy at once, not still 5s off.
+func TestBootSyncStepLeavesASmallPostStepSyncError(t *testing.T) {
+	h := newHarness(t)
+	h.add("192.0.2.1", 5*time.Second)
+	e := h.engine()
+	e.BootSync(context.Background())
+
+	st := e.Status()
+	if !approx(st.GetLastOffset().AsDuration(), 5*time.Second) {
+		t.Fatalf("last offset = %v, want it to keep the raw measured offset", st.GetLastOffset().AsDuration())
+	}
+	if got := st.GetLastSyncError().AsDuration(); got >= time.Second {
+		t.Fatalf("last sync error = %v, want well under the 5s step (the clock was already corrected)", got)
+	}
+}
+
+// A server with a large root distance leaves the clock genuinely less
+// trustworthy even after a step corrects the bulk of the offset; the post-step
+// sync error estimate must still reflect that, not collapse to near zero.
+func TestBootSyncStepRecordsSyncErrorFromRootDistance(t *testing.T) {
+	h := newHarness(t)
+	s := h.add("192.0.2.1", 5*time.Second)
+	s.set(func(s *fakeServer) { s.rootDelay = 0; s.rootDispersion = shortFrom(600 * time.Millisecond) })
+	e := h.engine()
+	e.BootSync(context.Background())
+
+	st := e.Status()
+	if !approx(st.GetLastOffset().AsDuration(), 5*time.Second) {
+		t.Fatalf("last offset = %v, want it to keep the raw measured offset", st.GetLastOffset().AsDuration())
+	}
+	got := st.GetLastSyncError().AsDuration()
+	if got < 550*time.Millisecond || got > 750*time.Millisecond {
+		t.Fatalf("last sync error = %v, want it to track the 600ms root distance, not the 5s offset or ~0", got)
+	}
+}
+
 func TestBootSyncSlewsASmallOffset(t *testing.T) {
 	h := newHarness(t)
 	h.add("192.0.2.1", 60*time.Millisecond)
@@ -300,6 +347,22 @@ func TestBootSyncSlewsASmallOffset(t *testing.T) {
 	}
 	if e.Status().GetSteppedAtBoot() {
 		t.Fatal("stepped_at_boot set for a slew")
+	}
+}
+
+// A slew has not caught up to the offset yet when the round finishes, so its
+// post-sync error estimate is still the full offset measured, unchanged from
+// before this estimate existed.
+func TestBootSyncSlewSyncErrorIsTheFullOffset(t *testing.T) {
+	h := newHarness(t)
+	h.add("192.0.2.1", 60*time.Millisecond)
+	e := h.engine()
+	e.BootSync(context.Background())
+
+	st := e.Status()
+	if !approx(st.GetLastSyncError().AsDuration(), st.GetLastOffset().AsDuration()) {
+		t.Fatalf("last sync error = %v, last offset = %v; want them equal for a slew",
+			st.GetLastSyncError().AsDuration(), st.GetLastOffset().AsDuration())
 	}
 }
 
