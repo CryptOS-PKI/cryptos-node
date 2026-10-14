@@ -4,6 +4,8 @@
 
 Builds a signed Unified Kernel Image (UKI): hardened kernel + Go-based PID 1 + read-only SquashFS rootfs + TPM-unsealed encrypted state partition. A single image boots into a Root, Intermediate, or Issuing CA role based on its machine config. No SSH, no shell, no interactive access. Private keys are TPM-bound and never live on disk in the clear.
 
+The CA runs only on the CryptOS appliance — its own hardware or VM — never on Kubernetes: a CA there can't be TPM-sealed and would be a single point of failure. FleetOS Manager, the optional multi-node console, runs on Kubernetes or standalone (a VM); see [`cryptos-manager`](https://github.com/CryptOS-PKI/cryptos-manager). Kubernetes is a certificate *consumer* of CryptOS, through cert-manager and ACME, never a place the CA runs.
+
 > [!WARNING]
 > 🚧 **Pre-1.0: any release can change fundamentally.** CryptOS is pre-1.0. Until v1.0.0, any release may change configuration, APIs, on-disk and state formats, trust setup, and upgrade paths, sometimes with no migration path. If you run it in production, you accept that risk. Read [each release's upgrade notes](https://github.com/CryptOS-PKI/cryptos-node/releases) before you upgrade.
 
@@ -92,7 +94,7 @@ A CA node has exactly two ways to be managed:
 | | When | What |
 |---|---|---|
 | `cryptosctl` | Always — and the **only** option on a standalone (unlinked) node. | Local UNIX socket on the node for break-glass; remote mTLS gRPC for everything else. |
-| Fleet Manager | Optional. When you want a web UI or multi-node view. | The `manager/` backend serves the `web/` frontend; talks to nodes via the same mTLS gRPC API. |
+| FleetOS Manager | Optional. When you want a web UI or multi-node view. Runs on Kubernetes or standalone (a VM) — never the CA itself. | The `manager/` backend serves the `web/` frontend; talks to nodes via the same mTLS gRPC API. |
 
 There is no third surface. The OS image ships no web frontend — neither source nor compiled — by design.
 
