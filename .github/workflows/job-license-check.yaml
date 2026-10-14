@@ -20,11 +20,11 @@ jobs:
   npm:
     name: npm dependency licenses
     if: github.event.pull_request.draft != true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Detect package.json
         id: manifest
@@ -33,7 +33,7 @@ jobs:
 
       - name: Setup Node
         if: steps.manifest.outputs.found == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
         with:
           node-version: lts/*
 
@@ -51,11 +51,11 @@ jobs:
   go:
     name: Go dependency licenses
     if: github.event.pull_request.draft != true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Detect go.mod
         id: manifest
@@ -64,7 +64,7 @@ jobs:
 
       - name: Setup Go
         if: steps.manifest.outputs.found == 'true'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version: 'stable'
 
