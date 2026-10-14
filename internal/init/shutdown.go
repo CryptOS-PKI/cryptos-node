@@ -102,6 +102,11 @@ type shutdownRequests struct {
 	// is happening instead of freezing on its last frame.
 	announce func(ShutdownAction)
 
+	// stopConsole stops the console dashboard for good and blocks until it has
+	// actually exited. Wait calls it before announce, so the dashboard's own
+	// refresh loop can never redraw a frame over the shutdown message (#370).
+	stopConsole func()
+
 	mu     sync.Mutex
 	chosen ShutdownAction
 }
@@ -145,6 +150,11 @@ func (r *shutdownRequests) Request(a ShutdownAction) {
 // for Action, and arms the teardown watchdog before returning, so the
 // teardown that follows cannot hang the node. An ended context counts as a
 // reboot.
+//
+// The console is stopped, and waited for, before the shutdown message is
+// announced: announcing first and stopping the console after would leave a
+// window where the dashboard's own refresh loop redraws its ordinary status
+// frame over the message that was just written (#370).
 func (r *shutdownRequests) Wait(ctx context.Context) ShutdownAction {
 	a := ShutdownReboot
 	select {
@@ -154,6 +164,9 @@ func (r *shutdownRequests) Wait(ctx context.Context) ShutdownAction {
 	r.mu.Lock()
 	r.chosen = a
 	r.mu.Unlock()
+	if r.stopConsole != nil {
+		r.stopConsole()
+	}
 	if r.announce != nil {
 		r.announce(a)
 	}
