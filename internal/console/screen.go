@@ -209,6 +209,15 @@ const (
 	minRows = 12
 )
 
+// NeedsCompact reports whether cols x rows is below the floor a framed screen
+// needs, the same threshold render uses to fall back to the compact view. A
+// caller outside the package (the console's font fallback) uses this to
+// decide when the real console geometry is too small, without duplicating
+// the floor.
+func NeedsCompact(cols, rows int) bool {
+	return cols < minCols || rows < minRows
+}
+
 // bodyLines lays the screen's body items out as rows within a frame inner
 // columns wide. This is the part of the framed layout that never gets
 // dropped or shortened, so its row count against rows-3 (the interior rows

@@ -44,7 +44,13 @@ func main() {
 
 	// Query the console size once at startup; the kernel sets a large font so
 	// the frame fills the whole screen. On any failure this falls back to 80x24.
-	cols, rows := consoleSize(int(os.Stdout.Fd()))
+	fd := int(os.Stdout.Fd())
+	cols, rows := consoleSize(fd)
+	// On a framebuffer too small for the prod cmdline's TER16x32 font, the VT
+	// can report fewer rows/cols than even the compact view needs. Fall back
+	// to the kernel's built-in 8x16 font before the first draw so the real
+	// console geometry, not just the reported one, has room for it.
+	cols, rows = ensureConsoleFits(kdFontSwitcher{fd: fd}, func() (int, int) { return consoleSize(fd) }, cols, rows)
 	ver := buildinfo.Get().Version
 
 	// Dial the local socket, retrying on failure so the console comes up even
