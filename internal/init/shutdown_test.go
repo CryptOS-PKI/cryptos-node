@@ -108,6 +108,32 @@ func TestShutdownRequests_WaitAnnouncesTheAction(t *testing.T) {
 	}
 }
 
+// Wait stops the console dashboard for good, and waits for it to have
+// actually stopped, before announcing the shutdown message. Otherwise the
+// dashboard's own refresh loop can redraw its ordinary status frame over the
+// shutdown message after it is written (#370).
+func TestShutdownRequests_WaitStopsTheConsoleBeforeAnnouncing(t *testing.T) {
+	sd := testShutdownRequests(nil)
+	var order []string
+	sd.stopConsole = func() { order = append(order, "stop") }
+	sd.announce = func(ShutdownAction) { order = append(order, "announce") }
+	sd.Request(ShutdownReboot)
+
+	sd.Wait(context.Background())
+	if !slices.Equal(order, []string{"stop", "announce"}) {
+		t.Fatalf("order = %v, want [stop announce]", order)
+	}
+}
+
+// A nil stopConsole (the zero value, before run.go wires one up) must not
+// panic Wait.
+func TestShutdownRequests_WaitToleratesNoStopConsole(t *testing.T) {
+	sd := testShutdownRequests(nil)
+	sd.Request(ShutdownReboot)
+
+	sd.Wait(context.Background())
+}
+
 // The console message names the action in the same words an admin sees
 // elsewhere in the UI, not the log's terse "reboot"/"power-off".
 func TestShutdownAction_ConsoleMessage(t *testing.T) {

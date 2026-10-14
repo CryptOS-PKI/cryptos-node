@@ -1016,7 +1016,21 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	// polls the local socket and redraws the node status frame. A console crash
 	// is non-critical: superviseConsole restarts it and never returns an error
 	// that would reboot a serving CA.
-	go superviseConsole(ctx)
+	//
+	// It runs under its own cancelable context rather than ctx directly, so a
+	// shutdown can stop it for good -- and confirm it has actually exited --
+	// before the shutdown message is written to the same console (#370).
+	consoleCtx, cancelConsole := context.WithCancel(ctx)
+	defer cancelConsole()
+	consoleDone := make(chan struct{})
+	go func() {
+		defer close(consoleDone)
+		superviseConsole(consoleCtx)
+	}()
+	shutdown.stopConsole = func() {
+		cancelConsole()
+		<-consoleDone
+	}
 
 	// 14. Park until a shutdown is requested, then return so the deferred
 	// teardown runs before PID 1 reboots or powers off. SIGINT must be handled
