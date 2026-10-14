@@ -36,6 +36,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
@@ -99,6 +100,13 @@ type imageUpgradeOptions struct {
 // nodeImageUpgrader implements grpc.ImageUpgrader.
 type nodeImageUpgrader struct {
 	opts imageUpgradeOptions
+
+	// mu serializes Stage, Rollback and Activate (#373): all three choreograph
+	// the same ESP slots (BOOTX64.NEW.EFI is shared write scratch), so two of
+	// them in flight at once could corrupt a slot rather than merely race for
+	// it. TryLock rather than Lock: a caller made while another is already
+	// running is refused outright (FailedPrecondition), not queued behind it.
+	mu sync.Mutex
 }
 
 func newImageUpgrader(opts imageUpgradeOptions) (*nodeImageUpgrader, error) {
@@ -121,6 +129,11 @@ func newImageUpgrader(opts imageUpgradeOptions) (*nodeImageUpgrader, error) {
 // Stage verifies the image and installs it as the one the firmware will boot,
 // retaining the current image. It does not reboot.
 func (u *nodeImageUpgrader) Stage(ctx context.Context, image, signature []byte) (*nodev1.ImageStatus, error) {
+	if !u.mu.TryLock() {
+		return nil, cgrpc.ErrUpgradeInProgress
+	}
+	defer u.mu.Unlock()
+
 	// Verified before the ESP is mounted at all, let alone writable. An image
 	// the node cannot attribute never gets near the boot partition of a
 	// production CA, and the stager verifies again on its own behalf -- cheap
@@ -205,6 +218,11 @@ func (u *nodeImageUpgrader) reseal(ctx context.Context, esp dirFS, image []byte)
 // boots with, and a prune that fails does not undo the rollback: the header
 // keeps its old tokens, the rollback target among them, until the next stage.
 func (u *nodeImageUpgrader) Rollback(ctx context.Context) (*nodev1.ImageStatus, error) {
+	if !u.mu.TryLock() {
+		return nil, cgrpc.ErrUpgradeInProgress
+	}
+	defer u.mu.Unlock()
+
 	var st imageupgrade.Status
 	err := u.opts.Mount(true, func(root string) error {
 		esp := dirFS{root: root}
@@ -298,6 +316,11 @@ func (u *nodeImageUpgrader) pruneAfterRollback(ctx context.Context, esp dirFS, r
 // boot the same image the node is already running is an outage with nothing to
 // show for it -- far more likely a mistake than an intention.
 func (u *nodeImageUpgrader) Activate(ctx context.Context, confirmCommonName string) error {
+	if !u.mu.TryLock() {
+		return cgrpc.ErrUpgradeInProgress
+	}
+	defer u.mu.Unlock()
+
 	if err := reset.CheckConfirm(u.opts.CACN(), confirmCommonName); err != nil {
 		return err
 	}
@@ -386,6 +409,23 @@ func (d dirFS) WriteFile(rel string, data []byte) error {
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
 
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+
+		return err
+	}
+
+	return f.Close()
+}
+
+// Sync fsyncs the ESP root directory, the barrier a vfat rename needs: the
+// rename that swaps the active image updates a directory entry, which a
+// file's own fsync (WriteFile, above) does not cover.
+func (d dirFS) Sync() error {
+	f, err := os.Open(d.root)
+	if err != nil {
 		return err
 	}
 	if err := f.Sync(); err != nil {

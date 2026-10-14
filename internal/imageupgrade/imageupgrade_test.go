@@ -30,11 +30,15 @@ import (
 )
 
 // memFS is the ESP in memory. failWrite lets a test interrupt the sequence at
-// the point that decides whether a node is left bootable.
+// the point that decides whether a node is left bootable. ops records every
+// call in order (including Sync), so a test can assert the directory sync
+// happens after the rename that it is meant to make durable.
 type memFS struct {
 	files     map[string][]byte
 	failWrite map[string]error
+	failSync  error
 	writes    []string
+	ops       []string
 }
 
 func newMemFS() *memFS {
@@ -55,6 +59,7 @@ func (m *memFS) ReadFile(rel string) ([]byte, error) {
 func (m *memFS) Remove(rel string) error { delete(m.files, rel); return nil }
 
 func (m *memFS) Rename(from, to string) error {
+	m.ops = append(m.ops, "rename:"+from+"->"+to)
 	data, ok := m.files[from]
 	if !ok {
 		return errors.New("not found: " + from)
@@ -67,12 +72,21 @@ func (m *memFS) Rename(from, to string) error {
 
 func (m *memFS) WriteFile(rel string, data []byte) error {
 	m.writes = append(m.writes, rel)
+	m.ops = append(m.ops, "write:"+rel)
 	if err := m.failWrite[rel]; err != nil {
 		return err
 	}
 	m.files[rel] = append([]byte(nil), data...)
 
 	return nil
+}
+
+// Sync stands in for fsyncing the ESP's mounted directory: the durability
+// barrier a vfat rename needs that a file's own fsync does not provide.
+func (m *memFS) Sync() error {
+	m.ops = append(m.ops, "sync")
+
+	return m.failSync
 }
 
 type release struct {
@@ -249,6 +263,40 @@ func TestStage_OnANodeWithNoActiveImage(t *testing.T) {
 	}
 }
 
+// A vfat rename isn't durable across a power loss on its own: the directory
+// entry update needs its own fsync. Stage must call it right after the
+// rename that makes the incoming image the active one (#373).
+func TestStage_SyncsTheESPDirectoryAfterTheRename(t *testing.T) {
+	rel := newRelease(t)
+	fs := newMemFS()
+	fs.files[ActiveRelPath] = []byte("old image")
+	s, _ := New(fs, rel.cert)
+
+	image := []byte("new image")
+	if _, err := s.Stage(image, rel.sign(t, image)); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+
+	wantLast := "rename:" + incomingRelPath + "->" + ActiveRelPath
+	if n := len(fs.ops); n < 2 || fs.ops[n-2] != wantLast || fs.ops[n-1] != "sync" {
+		t.Fatalf("ops = %v, want the activating rename immediately followed by a sync", fs.ops)
+	}
+}
+
+// If the directory sync fails, Stage must say so rather than reporting
+// success over a rename that might not survive a power loss.
+func TestStage_ReturnsAnErrorWhenTheDirectorySyncFails(t *testing.T) {
+	rel := newRelease(t)
+	fs := newMemFS()
+	fs.failSync = errors.New("input/output error")
+	s, _ := New(fs, rel.cert)
+
+	image := []byte("new image")
+	if _, err := s.Stage(image, rel.sign(t, image)); err == nil {
+		t.Fatal("Stage reported success despite a failed directory sync")
+	}
+}
+
 func TestRollback_RestoresThePreviousImage(t *testing.T) {
 	rel := newRelease(t)
 	fs := newMemFS()
@@ -265,6 +313,47 @@ func TestRollback_RestoresThePreviousImage(t *testing.T) {
 
 	if got := string(fs.files[ActiveRelPath]); got != "old image" {
 		t.Errorf("active image = %q, want the previous one restored", got)
+	}
+}
+
+// Rollback's final rename needs the same directory durability barrier as
+// Stage's (#373).
+func TestRollback_SyncsTheESPDirectoryAfterTheRename(t *testing.T) {
+	rel := newRelease(t)
+	fs := newMemFS()
+	fs.files[ActiveRelPath] = []byte("old image")
+	s, _ := New(fs, rel.cert)
+
+	image := []byte("bad image")
+	if _, err := s.Stage(image, rel.sign(t, image)); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	fs.ops = nil // only Rollback's own ops matter here
+
+	if err := s.Rollback(); err != nil {
+		t.Fatalf("Rollback: %v", err)
+	}
+
+	wantLast := "rename:" + incomingRelPath + "->" + ActiveRelPath
+	if n := len(fs.ops); n < 2 || fs.ops[n-2] != wantLast || fs.ops[n-1] != "sync" {
+		t.Fatalf("ops = %v, want the restoring rename immediately followed by a sync", fs.ops)
+	}
+}
+
+func TestRollback_ReturnsAnErrorWhenTheDirectorySyncFails(t *testing.T) {
+	rel := newRelease(t)
+	fs := newMemFS()
+	fs.files[ActiveRelPath] = []byte("old image")
+	s, _ := New(fs, rel.cert)
+
+	image := []byte("bad image")
+	if _, err := s.Stage(image, rel.sign(t, image)); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	fs.failSync = errors.New("input/output error")
+
+	if err := s.Rollback(); err == nil {
+		t.Fatal("Rollback reported success despite a failed directory sync")
 	}
 }
 

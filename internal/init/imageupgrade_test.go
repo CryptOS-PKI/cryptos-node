@@ -333,6 +333,113 @@ func TestUpgrader_ActivateRebootsOnTheRightCommonName(t *testing.T) {
 	}
 }
 
+// Stage, Rollback and Activate share one lock (#373): two upgrade calls at
+// the same time could otherwise both write BOOTX64.NEW.EFI, and a caller made
+// while another is already running gets FailedPrecondition rather than
+// queuing behind it or racing it.
+//
+// This drives the overlap with real goroutines rather than only holding the
+// lock by hand, so it proves the lock is actually wired into Stage, not just
+// that TryLock itself works.
+func TestUpgrader_StageSerializesAgainstAConcurrentStage(t *testing.T) {
+	rel := newReleaseKey(t)
+	old := []byte("the running image")
+	esp := newESPDir(t, old)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	blockingMount := func(readWrite bool, fn func(root string) error) error {
+		return esp.mount(readWrite, func(root string) error {
+			close(started)
+			<-release
+
+			return fn(root)
+		})
+	}
+	u, err := newImageUpgrader(imageUpgradeOptions{
+		CACN:    func() string { return testCACN },
+		Mount:   blockingMount,
+		Reboot:  func() { t.Fatal("must not reboot") },
+		Release: rel.cert,
+		Running: digestOf(old),
+		Version: "v1.2.3",
+	})
+	if err != nil {
+		t.Fatalf("newImageUpgrader: %v", err)
+	}
+
+	image := []byte("the new image")
+	sig := rel.sign(t, image)
+	firstDone := make(chan error, 1)
+	go func() {
+		_, stageErr := u.Stage(context.Background(), image, sig)
+		firstDone <- stageErr
+	}()
+
+	<-started
+	if _, err := u.Stage(context.Background(), image, sig); !errors.Is(err, grpc.ErrUpgradeInProgress) {
+		t.Fatalf("concurrent Stage err = %v, want ErrUpgradeInProgress", err)
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("the first Stage: %v", err)
+	}
+}
+
+// A caller must not be able to Stage while a Rollback the test holds the lock
+// for is in flight (or vice versa); checked here against the lock directly,
+// which exercises the same guard the goroutine test above exercises through
+// real concurrency.
+func TestUpgrader_StageRefusesWhileAnUpgradeIsInProgress(t *testing.T) {
+	rel := newReleaseKey(t)
+	old := []byte("the running image")
+	esp := newESPDir(t, old)
+	u := newTestUpgrader(t, esp, rel, old, func() { t.Fatal("must not reboot") })
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	image := []byte("the new image")
+	if _, err := u.Stage(context.Background(), image, rel.sign(t, image)); !errors.Is(err, grpc.ErrUpgradeInProgress) {
+		t.Fatalf("err = %v, want ErrUpgradeInProgress", err)
+	}
+	if esp.mountedReadWrite() {
+		t.Error("a refused concurrent Stage still mounted the ESP")
+	}
+}
+
+func TestUpgrader_RollbackRefusesWhileAnUpgradeIsInProgress(t *testing.T) {
+	rel := newReleaseKey(t)
+	old := []byte("the running image")
+	esp := newESPDir(t, old)
+	u := newTestUpgrader(t, esp, rel, old, func() { t.Fatal("must not reboot") })
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if _, err := u.Rollback(context.Background()); !errors.Is(err, grpc.ErrUpgradeInProgress) {
+		t.Fatalf("err = %v, want ErrUpgradeInProgress", err)
+	}
+	if esp.mountedReadWrite() {
+		t.Error("a refused concurrent Rollback still mounted the ESP")
+	}
+}
+
+func TestUpgrader_ActivateRefusesWhileAnUpgradeIsInProgress(t *testing.T) {
+	rel := newReleaseKey(t)
+	old := []byte("the running image")
+	esp := newESPDir(t, old)
+	u := newTestUpgrader(t, esp, rel, old, func() { t.Fatal("must not reboot") })
+
+	image := []byte("the new image")
+	if _, err := u.Stage(context.Background(), image, rel.sign(t, image)); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if err := u.Activate(context.Background(), testCACN); !errors.Is(err, grpc.ErrUpgradeInProgress) {
+		t.Fatalf("err = %v, want ErrUpgradeInProgress", err)
+	}
+}
+
 // On a node that has not been upgraded, running and active are the same image
 // and nothing is outstanding.
 func TestUpgrader_StatusOnAnUnupgradedNode(t *testing.T) {
