@@ -31,9 +31,9 @@
 // refuses before the first good sync of the boot, after a round the servers
 // answered but that was not applied (adjustment_refused), once the last good
 // sync is older than ClockLimits.MaxSyncAge, and once the estimated clock
-// error (EstimatedClockError: the offset at the last good sync plus
-// MaxDriftPPM of the time since) is above MaxClockError, which is never
-// larger than the accuracy tokens claim.
+// error (EstimatedClockError: the clock's post-correction error estimate at
+// the last good sync plus MaxDriftPPM of the time since) is above
+// MaxClockError, which is never larger than the accuracy tokens claim.
 //
 // # Keys and certificates
 //

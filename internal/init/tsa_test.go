@@ -70,9 +70,10 @@ func newTSAFixture(t *testing.T) *tsaFixture {
 				return &nodev1.TimeSyncStatus{State: nodev1.TimeSyncState_TIME_SYNC_STATE_PENDING}
 			}
 			return &nodev1.TimeSyncStatus{
-				State:      nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED,
-				LastOffset: durationpb.New(3 * time.Millisecond),
-				LastSync:   timestamppb.Now(),
+				State:         nodev1.TimeSyncState_TIME_SYNC_STATE_SYNCED,
+				LastOffset:    durationpb.New(3 * time.Millisecond),
+				LastSyncError: durationpb.New(3 * time.Millisecond),
+				LastSync:      timestamppb.Now(),
 			}
 		},
 	}

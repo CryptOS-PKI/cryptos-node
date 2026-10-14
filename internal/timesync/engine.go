@@ -128,17 +128,18 @@ type Engine struct {
 	// round serialises sync rounds.
 	round sync.Mutex
 
-	mu         sync.Mutex
-	state      nodev1.TimeSyncState
-	syncedOnce bool
-	lastServer string
-	lastOffset time.Duration
-	hasOffset  bool
-	stratum    uint32
-	lastSync   time.Time
-	stepped    bool
-	lastErr    string
-	refused    bool
+	mu            sync.Mutex
+	state         nodev1.TimeSyncState
+	syncedOnce    bool
+	lastServer    string
+	lastOffset    time.Duration
+	lastSyncError time.Duration
+	hasOffset     bool
+	stratum       uint32
+	lastSync      time.Time
+	stepped       bool
+	lastErr       string
+	refused       bool
 }
 
 // New builds an Engine. It does no I/O.
@@ -223,6 +224,7 @@ func (e *Engine) Status() *nodev1.TimeSyncStatus {
 	}
 	if e.hasOffset {
 		st.LastOffset = durationpb.New(e.lastOffset)
+		st.LastSyncError = durationpb.New(e.lastSyncError)
 	}
 	if !e.lastSync.IsZero() {
 		st.LastSync = timestamppb.New(e.lastSync)
@@ -613,7 +615,7 @@ func (e *Engine) apply(samples []Sample, errs map[string]error, boot bool) {
 	if err := e.cfg.Floor.Advance(synced); err != nil {
 		e.log.Error("clock floor: could not record the synced time", "err", err)
 	}
-	e.succeed(s, synced, boot && step)
+	e.succeed(s, synced, boot && step, step)
 }
 
 // refuse records a round in which servers answered but the clock was not
@@ -638,7 +640,7 @@ func (e *Engine) fail(msg string, level slog.Level) {
 	e.log.Log(context.Background(), level, "time sync round did not adjust the clock", "reason", msg)
 }
 
-func (e *Engine) succeed(s Sample, at time.Time, stepped bool) {
+func (e *Engine) succeed(s Sample, at time.Time, bootStep, stepped bool) {
 	e.mu.Lock()
 	prev := e.state
 	first := !e.syncedOnce
@@ -646,12 +648,13 @@ func (e *Engine) succeed(s Sample, at time.Time, stepped bool) {
 	e.syncedOnce = true
 	e.lastServer = s.Server
 	e.lastOffset = s.Offset
+	e.lastSyncError = syncError(s, stepped)
 	e.hasOffset = true
 	e.stratum = uint32(s.Stratum)
 	e.lastSync = at
 	e.lastErr = ""
 	e.refused = false
-	if stepped {
+	if bootStep {
 		e.stepped = true
 	}
 	e.mu.Unlock()
@@ -661,6 +664,20 @@ func (e *Engine) succeed(s Sample, at time.Time, stepped bool) {
 	if first {
 		e.log.Info("clock synced for the first time this boot; the signing gate is open", "server", s.Server)
 	}
+}
+
+// syncError is the clock's estimated error right after this round, for the
+// gate TSA uses to decide whether to trust the clock: a step corrects the
+// clock down to about its root distance plus half the round-trip delay (the
+// same figure passed to Clock.MarkSynced), so that residual is what remains,
+// not the much larger offset the step was asked to correct; a slew has not
+// caught up to the offset yet, so its estimate is still the full offset
+// measured, as before.
+func syncError(s Sample, stepped bool) time.Duration {
+	if stepped {
+		return s.RootDistance + s.Delay/2
+	}
+	return absDuration(s.Offset)
 }
 
 // fmtFloorError is the reason a step below the floor was refused.

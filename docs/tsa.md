@@ -102,11 +102,17 @@ so one unanswered poll does not stop it. Every request is answered
 | `max_sync_age` | the last good sync is older than `max_sync_age_seconds` | 3600 (1 hour) |
 | `max_clock_error` | the estimated clock error is larger than `max_clock_error_ms` | `accuracy_ms` (1 second) |
 
-The estimated clock error is the offset measured at the last good sync plus
-`max_drift_ppm` parts per million of the time since it. At the defaults, a
-sync that measured 20 ms gives an estimate of 20 ms + 360 ms = 380 ms an hour
-later, inside the 1 second bound. `max_drift_ppm` defaults to 100, a
-conservative bound for a server crystal; 500 is the NTP frequency tolerance.
+The estimated clock error is the clock's error right after the last good
+sync, plus `max_drift_ppm` parts per million of the time since it. That
+right-after-sync figure is not the offset the sync corrected: once a sync
+steps the clock, what remains is bounded by the server's root distance and
+half the round-trip delay, typically a few milliseconds, not the (possibly
+much larger) step that was just applied; a slew has not caught up to its
+offset yet, so its figure is the full measured offset until the next sync. At
+the defaults, a sync left with a 20 ms error gives an estimate of
+20 ms + 360 ms = 380 ms an hour later, inside the 1 second bound.
+`max_drift_ppm` defaults to 100, a conservative bound for a server crystal;
+500 is the NTP frequency tolerance.
 
 `max_clock_error_ms` may not be larger than the effective `accuracy_ms`:
 `config apply` refuses it, because a token must never claim more accuracy than
