@@ -25,7 +25,7 @@ jobs:
   dco:
     name: ✍️ DCO sign-off
     if: github.event.pull_request.draft == false
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: ✍️ Check every commit is signed off by its author
