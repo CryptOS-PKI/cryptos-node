@@ -21,17 +21,17 @@ jobs:
   golic:
     name: 🔏 License headers
     if: github.event.pull_request.draft != true
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6.5.0
         with:
           go-version: 'stable'
       - name: Install Task
-        uses: arduino/setup-task@v2
+        uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52  # v3.0.0
         with:
           # Pin an exact, existing go-task version. setup-task's `3.x` range
           # resolution mis-computes a nonexistent version (observed: v3.52.0 ->

@@ -152,8 +152,8 @@ The gRPC API this OS serves is defined here, in [`proto/cryptos/node/v1`](proto/
 
 ## 🧭 Companion repos
 
-- 🛰️ [`manager`](https://github.com/CryptOS-PKI/manager) — Fleet Manager backend (optional).
-- 🎨 [`web`](https://github.com/CryptOS-PKI/web) — Fleet Manager web frontend (optional, served by `manager/`).
+- 🛰️ [`cryptos-manager`](https://github.com/CryptOS-PKI/cryptos-manager) — Fleet Manager backend (optional).
+- 🎨 [`cryptos-web`](https://github.com/CryptOS-PKI/cryptos-web) — Fleet Manager web frontend (optional, served by `cryptos-manager/`).
 
 ## 🙏 Acknowledgements
 
