@@ -1,16 +1,8 @@
 name: Release Drafter
 
-# Drafts the next release on push to main and updates CHANGELOG.md before the
-# release is cut; autolabels PRs so the draft is categorized.
-#
-# DISABLED until the org GitHub App is configured: every job is gated on
-# `vars.APP_CLIENT_ID`, so until that variable is set the job is skipped (no
-# runs, no failures). Once APP_CLIENT_ID (variable) and APP_PRIVATE_KEY
-# (secret) are set for the org/repo, it self-enables — no edit required.
-#
-# The App token is used to push the CHANGELOG commit back to main. That commit
-# touches only CHANGELOG.md (path-ignored by ci-go) and carries [skip ci], so
-# it never re-triggers this workflow.
+# Drafts the next release on push to main; autolabels PRs so the draft is
+# categorized. Runs with the built-in GITHUB_TOKEN, no org GitHub App
+# required.
 
 on:
   push:
@@ -30,55 +22,24 @@ concurrency:
 
 jobs:
   draft:
-    name: Draft release and update changelog
-    # Inert until the GitHub App is configured (see header).
-    if: ${{ vars.APP_CLIENT_ID != '' && github.event.pull_request.draft != true }}
+    name: Draft release
+    if: ${{ github.event.pull_request.draft != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write # update releases + push the changelog commit
-      pull-requests: write # autolabeler
+      contents: write
+      pull-requests: write
     steps:
-      - name: Create GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v3.1.1
-        with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Release Drafter
-        id: drafter
         uses: Bugs5382/release-drafter-action@de0c4559d69039b8b371ef951b62a2532ad3593f  # v1.0.1
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           extends: CryptOS-PKI/.github@aa8761a2903d759dbb5f48b8d5e3517a9dc6da79
           first-version: 0.1.0
           prerelease: true
           prerelease-identifier: rc
-
-      - name: Update CHANGELOG
-        if: github.event_name != 'pull_request'
-        uses: Bugs5382/changelog-updater-action@v0.3.2
-        env:
-          LOG_LEVEL: debug
-          LOG_FORMAT: text
-          RELEASE_NOTES: >-
-            ${{ steps.drafter.outputs.body }}
-          RELEASE_VERSION: v${{ steps.drafter.outputs.resolved_version }}
-        with:
-          tag: ${{ env.RELEASE_VERSION }}
-          notes: ${{ env.RELEASE_NOTES }}
-          diff: "true"
-
-      - name: Commit changelog
-        if: github.event_name != 'pull_request'
-        uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: "chore(pre-release): v${{ steps.drafter.outputs.resolved_version }} [skip ci]"
-          file_pattern: CHANGELOG.md

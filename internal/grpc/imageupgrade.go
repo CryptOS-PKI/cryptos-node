@@ -74,6 +74,13 @@ var ErrImageNotResealable = errors.New("grpc: the state key cannot be resealed f
 // package need not import the implementation.
 var ErrNoPreviousImage = errors.New("grpc: no previous image to roll back to")
 
+// ErrUpgradeInProgress is returned by an ImageUpgrader's Stage, Rollback or
+// Activate when another one of those three calls is already running on this
+// node. The handler maps it to FailedPrecondition: the request itself is
+// fine, but a second call in flight at the same time as a Stage could share
+// the write slot (BOOTX64.NEW.EFI) and leave a half-written boot image.
+var ErrUpgradeInProgress = errors.New("grpc: an image upgrade call is already in progress on this node")
+
 // ImageUpgrader replaces the node's CryptOS image without touching its
 // identity. It is wired on the mTLS and local servers of a running node; the
 // maintenance servers leave it nil so the image RPCs return Unimplemented
@@ -122,6 +129,10 @@ func (s *Server) StageImage(stream grpc.ClientStreamingServer[nodev1.StageImageR
 		if errors.Is(err, ErrImageNotResealable) {
 			return status.Errorf(codes.FailedPrecondition,
 				"StageImage: nothing was written: %v", err)
+		}
+		if errors.Is(err, ErrUpgradeInProgress) {
+			return status.Error(codes.FailedPrecondition,
+				"StageImage: another image upgrade call is already in progress on this node")
 		}
 		return status.Errorf(codes.Internal, "StageImage: %v", err)
 	}
@@ -209,6 +220,10 @@ func (s *Server) RollbackImage(ctx context.Context, _ *nodev1.RollbackImageReque
 		if errors.Is(err, ErrNoPreviousImage) {
 			return nil, status.Error(codes.FailedPrecondition, "RollbackImage: this node has no previous image retained")
 		}
+		if errors.Is(err, ErrUpgradeInProgress) {
+			return nil, status.Error(codes.FailedPrecondition,
+				"RollbackImage: another image upgrade call is already in progress on this node")
+		}
 		return nil, status.Errorf(codes.Internal, "RollbackImage: %v", err)
 	}
 
@@ -242,6 +257,10 @@ func (s *Server) ActivateImage(ctx context.Context, req *nodev1.ActivateImageReq
 		}
 		if errors.Is(err, reset.ErrConfirmMismatch) {
 			return nil, status.Error(codes.PermissionDenied, "ActivateImage: confirmation CN does not match the CA CN")
+		}
+		if errors.Is(err, ErrUpgradeInProgress) {
+			return nil, status.Error(codes.FailedPrecondition,
+				"ActivateImage: another image upgrade call is already in progress on this node")
 		}
 		return nil, status.Errorf(codes.Internal, "ActivateImage: %v", err)
 	}
