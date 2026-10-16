@@ -56,6 +56,38 @@ func bringUpLoopback(ifIndex indexFunc, send sendFunc) error {
 	return nil
 }
 
+// setLinkUp sets IFF_UP on the named interface.
+func setLinkUp(name string, ifIndex indexFunc, send sendFunc) error {
+	idx, err := ifIndex(name)
+	if err != nil {
+		return fmt.Errorf("netlink: %s index: %w", name, err)
+	}
+	if err := send(buildLinkUpRequest(1, idx)); err != nil {
+		return fmt.Errorf("netlink: set %s up: %w", name, err)
+	}
+	return nil
+}
+
+// addAddress brings the named interface up and adds the IPv4 prefix p to it.
+// Unlike configure it flushes nothing and installs no route: the kernel adds
+// the connected route for p itself.
+func addAddress(name string, p netip.Prefix, ifIndex indexFunc, send sendFunc) error {
+	if !p.IsValid() || !p.Addr().Is4() {
+		return fmt.Errorf("netlink: add address: %q needs a valid IPv4 address/prefix", name)
+	}
+	idx, err := ifIndex(name)
+	if err != nil {
+		return fmt.Errorf("netlink: %s index: %w", name, err)
+	}
+	if err := send(buildLinkUpRequest(1, idx)); err != nil {
+		return fmt.Errorf("netlink: set %s up: %w", name, err)
+	}
+	if err := send(buildAddrRequest(2, idx, p)); err != nil {
+		return fmt.Errorf("netlink: add %s to %s: %w", p, name, err)
+	}
+	return nil
+}
+
 // configure brings the named interface up, flushes any existing IPv4
 // addresses (e.g. a kernel ip=dhcp address on a different subnet),
 // assigns the static address, and (if set) installs a default route via

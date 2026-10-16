@@ -50,8 +50,9 @@ func fleetLabel(s FleetState) string {
 // network or crypto identifiers, with two exceptions: MgmtFingerprint, the
 // SHA-256 of the public management certificate, which exists so an operator
 // can verify a pin against the node's own screen, and MgmtAddrs, which only
-// the maintenance screen shows, because a node with no config has a DHCP
-// address the operator cannot know in advance.
+// the maintenance screen shows, because a node with no config has a DHCP (or,
+// with no DHCP server, a self-assigned link-local) address the operator cannot
+// know in advance.
 type View struct {
 	RootCN      string
 	Issuer      string

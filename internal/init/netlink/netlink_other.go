@@ -20,6 +20,7 @@ limitations under the License.
 
 import (
 	"errors"
+	"net/netip"
 	"runtime"
 )
 
@@ -33,3 +34,9 @@ func BringUpLoopback() error { return errUnsupported }
 
 // ConfigureInterface is unsupported off Linux.
 func ConfigureInterface(Config) error { return errUnsupported }
+
+// SetLinkUp is unsupported off Linux.
+func SetLinkUp(string) error { return errUnsupported }
+
+// AddAddress is unsupported off Linux.
+func AddAddress(string, netip.Prefix) error { return errUnsupported }

@@ -246,6 +246,69 @@ func TestManagementAddrsKeepsReachableIPv4(t *testing.T) {
 	}
 }
 
+func ipNet(cidr string) net.Addr {
+	ip, n, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic(err)
+	}
+	return &net.IPNet{IP: ip, Mask: n.Mask}
+}
+
+// With no DHCP server the node's only IPv4 address is the link-local one it
+// assigned itself, and that is what the console shows. A routable address
+// always wins, loopback is never shown, and IPv6 (the node configures none,
+// so any fe80:: address is the kernel's own) is ignored either way.
+func TestReachableAddrsFallsBackToLinkLocal(t *testing.T) {
+	cases := []struct {
+		name  string
+		addrs []net.Addr
+		want  string
+	}{
+		{"routable present", []net.Addr{ipNet("127.0.0.1/8"), ipNet("169.254.10.1/16"), ipNet("192.0.2.10/24"), ipNet("fe80::1/64")}, "192.0.2.10"},
+		{"only link-local", []net.Addr{ipNet("127.0.0.1/8"), ipNet("169.254.10.1/16"), ipNet("fe80::1/64")}, "169.254.10.1"},
+		{"two link-local in order", []net.Addr{ipNet("169.254.10.1/16"), &net.IPAddr{IP: net.ParseIP("169.254.20.2")}}, "169.254.10.1,169.254.20.2"},
+		{"only loopback", []net.Addr{ipNet("127.0.0.1/8")}, ""},
+		{"only IPv6 link-local", []net.Addr{ipNet("127.0.0.1/8"), ipNet("fe80::1/64")}, ""},
+		{"none", nil, ""},
+	}
+	for _, tc := range cases {
+		if got := strings.Join(console.ReachableAddrs(tc.addrs), ","); got != tc.want {
+			t.Errorf("%s: ReachableAddrs = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestRenderDashboardMaintenanceAddressLineForEachAddressCase(t *testing.T) {
+	fp := console.Fingerprint([]byte("maintenance cert"))
+	cases := []struct {
+		name  string
+		addrs []net.Addr
+		want  string
+	}{
+		{"routable present", []net.Addr{ipNet("169.254.10.1/16"), ipNet("192.0.2.10/24")}, "Address 192.0.2.10"},
+		{"only link-local", []net.Addr{ipNet("127.0.0.1/8"), ipNet("169.254.10.1/16"), ipNet("fe80::1/64")}, "Address 169.254.10.1"},
+		{"only loopback", []net.Addr{ipNet("127.0.0.1/8")}, ""},
+		{"only IPv6 link-local", []net.Addr{ipNet("fe80::1/64")}, ""},
+	}
+	for _, tc := range cases {
+		v := maintenanceView(fp, console.ReachableAddrs(tc.addrs)...)
+		var got string
+		for _, ln := range screenLines(console.RenderDashboard(v, 64, 24)) {
+			ln = strings.Join(strings.Fields(strings.Trim(ln, "| ")), " ")
+			if strings.HasPrefix(ln, "Address") {
+				got = ln
+			}
+		}
+		if got != tc.want {
+			t.Errorf("%s: Address line = %q, want %q", tc.name, got, tc.want)
+		}
+		compact := stripSGR(console.RenderDashboard(v, 30, 10))
+		if hasIP := strings.Contains(compact, "IP  "); hasIP != (tc.want != "") {
+			t.Errorf("%s: compact IP line shown = %v, want %v:\n%s", tc.name, hasIP, tc.want != "", compact)
+		}
+	}
+}
+
 // awaitingCeremonyView is an installed Root node that has not run its
 // ceremony yet.
 func awaitingCeremonyView(fp string) console.View {
