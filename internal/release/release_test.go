@@ -26,6 +26,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"math/big"
+	"os"
 	"testing"
 	"time"
 )
@@ -113,20 +114,85 @@ func TestParse_GarbageIsNotTheSameAsAbsent(t *testing.T) {
 	}
 }
 
-// Certificate reads whatever this build was stamped with. A development build
-// gets ErrNoCertificate; a signed build gets a certificate. Both are
-// legitimate, so this asserts the accessor agrees with the stamped value
-// rather than pinning one outcome.
-func TestCertificate_MatchesTheBuildStamp(t *testing.T) {
+// Certificate reads whatever this image carries: the sign-time anchor from
+// the environment when there is one, else the build stamp. A development
+// build gets ErrNoCertificate; a signed one gets a certificate. Both are
+// legitimate, so this asserts the accessor agrees with resolve rather than
+// pinning one outcome.
+func TestCertificate_MatchesTheResolvedAnchor(t *testing.T) {
 	cert, err := Certificate()
-	want, wantErr := parse(CertificateDER)
+	want, wantErr := resolve(os.Getenv(EnvAnchor), CertificateDER)
 
 	switch {
-	case wantErr != nil && !errors.Is(err, wantErr):
+	case wantErr != nil && (err == nil || err.Error() != wantErr.Error()):
 		t.Fatalf("Certificate err = %v, want %v", err, wantErr)
 	case wantErr == nil && err != nil:
 		t.Fatalf("Certificate: %v", err)
 	case wantErr == nil && !cert.Equal(want):
-		t.Error("Certificate returned something other than the embedded certificate")
+		t.Error("Certificate returned something other than the resolved anchor")
+	}
+}
+
+// A sign-time anchor wins over the build stamp: the signing step is the last
+// word on whose image this is.
+func TestResolve_SignTimeAnchorWins(t *testing.T) {
+	signTime, buildTime := rsaCert(t), rsaCert(t)
+
+	got, err := resolve(signTime, buildTime)
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	want, _ := parse(signTime)
+	if !got.Equal(want) {
+		t.Error("resolve returned the build-time anchor, want the sign-time one")
+	}
+}
+
+// With no sign-time anchor the build stamp is used, as before.
+func TestResolve_FallsBackToTheBuildStamp(t *testing.T) {
+	buildTime := rsaCert(t)
+	for name, signTime := range map[string]string{
+		"unset":      "",
+		"whitespace": " \n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := resolve(signTime, buildTime)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			want, _ := parse(buildTime)
+			if !got.Equal(want) {
+				t.Error("resolve did not return the build-time anchor")
+			}
+		})
+	}
+}
+
+// An image with neither anchor keeps the distinct "no certificate" condition,
+// so the node still turns the upgrade RPCs off cleanly.
+func TestResolve_NeitherAnchorIsNoCertificate(t *testing.T) {
+	if _, err := resolve("", ""); !errors.Is(err, ErrNoCertificate) {
+		t.Errorf("err = %v, want ErrNoCertificate", err)
+	}
+}
+
+// A sign-time anchor that does not parse must fail, not fall back to the build
+// stamp: quietly trusting a different key would hide a broken signing step.
+func TestResolve_BrokenSignTimeAnchorDoesNotFallBack(t *testing.T) {
+	_, err := resolve("bm90IGEgY2VydA==", rsaCert(t))
+	if err == nil || errors.Is(err, ErrNoCertificate) {
+		t.Fatalf("err = %v, want a sign-time anchor failure", err)
+	}
+}
+
+// The sign-time anchor gets the same RSA check as the build stamp, because the
+// detached release signature it verifies is PKCS#1 v1.5.
+func TestResolve_SignTimeAnchorMustBeRSA(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	if _, err := resolve(selfSigned(t, key, &key.PublicKey), rsaCert(t)); err == nil {
+		t.Fatal("resolve accepted an ECDSA sign-time anchor")
 	}
 }
