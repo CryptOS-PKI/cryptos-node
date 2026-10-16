@@ -21,6 +21,7 @@ limitations under the License.
 // the state partition.
 
 import (
+	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -32,6 +33,7 @@ import (
 	"github.com/spf13/cobra"
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
+	"github.com/CryptOS-PKI/cryptos-node/internal/isoimage"
 	"github.com/CryptOS-PKI/cryptos-node/internal/ukisign"
 )
 
@@ -267,8 +269,10 @@ func newImageActivateCmd(opts *globalOpts) *cobra.Command {
 }
 
 // newImageSignCmd signs an unsigned UKI with the operator's own key and makes
-// that key the image's upgrade anchor (cryptos-appliance#41). It runs on the
-// workstation and never talks to a node.
+// that key the image's upgrade anchor (cryptos-appliance#41). Given an ISO,
+// it signs the UKI the ISO carries and writes it back into the ISO
+// (cryptos-appliance#83). It runs on the workstation and never talks to a
+// node.
 func newImageSignCmd() *cobra.Command {
 	var (
 		imagePath string
@@ -278,12 +282,15 @@ func newImageSignCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "sign",
-		Short: "Sign an unsigned image with your key and make it the upgrade anchor",
+		Short: "Sign an unsigned image or ISO with your key and make it the upgrade anchor",
 		Long: "Sign an unsigned CryptOS image (UKI) with your own Secure Boot key. The " +
 			"certificate is added to the image as its upgrade anchor, the image is " +
 			"Authenticode-signed for Secure Boot, and the detached release signature " +
 			"'image stage' sends is written beside it as <out>.sig. A node installed " +
 			"from the signed image takes in-place upgrades signed by the same key. " +
+			"Given an unsigned ISO instead, it signs the UKI inside it the same way, " +
+			"writes the signed UKI back over every copy in the ISO, and also writes " +
+			"the signed UKI and its .sig beside the signed ISO for staging upgrades. " +
 			"Runs locally; it does not contact a node.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -294,11 +301,7 @@ func newImageSignCmd() *cobra.Command {
 				return errors.New("--key is required")
 			case certPath == "":
 				return errors.New("--cert is required")
-			}
-			if outPath == "" {
-				outPath = ukisign.DefaultOut(imagePath)
-			}
-			if outPath == imagePath {
+			case outPath == imagePath:
 				return errors.New("--out must differ from --image")
 			}
 
@@ -323,6 +326,16 @@ func newImageSignCmd() *cobra.Command {
 				return err
 			}
 
+			if isoimage.IsISO(image) {
+				return signISO(cmd.OutOrStdout(), imagePath, outPath, image, key, cert)
+			}
+
+			if outPath == "" {
+				outPath = ukisign.DefaultOut(imagePath)
+			}
+			if outPath == imagePath {
+				return errors.New("--out must differ from --image")
+			}
 			res, err := ukisign.Sign(image, key, cert)
 			if err != nil {
 				return err
@@ -338,12 +351,54 @@ func newImageSignCmd() *cobra.Command {
 			return writeImageSigned(cmd.OutOrStdout(), outPath, sigPath, res.Image, cert)
 		},
 	}
-	cmd.Flags().StringVar(&imagePath, "image", "", "unsigned CryptOS image (UKI) to sign")
+	cmd.Flags().StringVar(&imagePath, "image", "", "unsigned CryptOS image to sign: a UKI, or an ISO that carries one")
 	cmd.Flags().StringVar(&keyPath, "key", "", "RSA signing key, PEM (PKCS#1 or PKCS#8, not encrypted)")
 	cmd.Flags().StringVar(&certPath, "cert", "", "signing certificate, PEM or DER; it becomes the upgrade anchor")
-	cmd.Flags().StringVar(&outPath, "out", "", "signed image path (default: <image> without .unsigned, else <image>.signed.uki)")
+	cmd.Flags().StringVar(&outPath, "out", "", "signed image path (default: <image> without .unsigned, else <image>.signed.uki; "+
+		"for an ISO, <image> without -unsigned, else <image>.signed.iso, with the signed UKI beside it as <out without .iso>.uki)")
 
 	return cmd
+}
+
+// signISO signs the UKI inside an ISO and writes the signed ISO, the signed
+// UKI and the UKI's detached signature. Nothing is written unless the signed
+// ISO passed its self-check.
+func signISO(w io.Writer, isoPath, outPath string, iso []byte, key crypto.Signer, cert *x509.Certificate) error {
+	if outPath == "" {
+		outPath = ukisign.DefaultISOOut(isoPath)
+	}
+	ukiPath := ukisign.ISOUKIPath(outPath)
+	sigPath := ukiPath + ".sig"
+	for _, p := range []string{outPath, ukiPath, sigPath} {
+		if p == isoPath {
+			return fmt.Errorf("signing %s would overwrite it; pick another --out", isoPath)
+		}
+	}
+	res, err := ukisign.SignISO(iso, key, cert)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(outPath, res.ISO, 0o644); err != nil {
+		return fmt.Errorf("write the signed ISO: %w", err)
+	}
+	if err := os.WriteFile(ukiPath, res.Image, 0o644); err != nil {
+		return fmt.Errorf("write the signed image: %w", err)
+	}
+	if err := os.WriteFile(sigPath, res.Signature, 0o644); err != nil {
+		return fmt.Errorf("write the release signature: %w", err)
+	}
+
+	sum := sha256.Sum256(res.ISO)
+	if _, err := fmt.Fprintf(w, "Signed ISO:       %s\nISO SHA-256:      %s\n", outPath, hex.EncodeToString(sum[:])); err != nil {
+		return err
+	}
+	for _, c := range res.Copies {
+		if _, err := fmt.Fprintf(w, "Signed in ISO:    %s\n", c); err != nil {
+			return err
+		}
+	}
+
+	return writeImageSigned(w, ukiPath, sigPath, res.Image, cert)
 }
 
 // writeImageSigned reports what was written and which certificate the image

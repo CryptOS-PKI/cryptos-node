@@ -30,6 +30,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/CryptOS-PKI/cryptos-node/internal/isoimage/isotest"
 	"github.com/CryptOS-PKI/cryptos-node/internal/ukisign"
 )
 
@@ -111,6 +112,29 @@ func TestImageSign_RefusesANonUKIAndWritesNothing(t *testing.T) {
 	for _, p := range []string{filepath.Join(dir, "cryptos-amd64.uki"), filepath.Join(dir, "cryptos-amd64.uki.sig")} {
 		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("%s was written for a refused image", p)
+		}
+	}
+}
+
+// An ISO is told apart from a UKI by its content. One whose boot image holds
+// something that is not a UKI is refused, and none of the three outputs is
+// written.
+func TestImageSign_ISOWithANonUKIIsRefusedAndWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	keyPath, certPath := writeSigningPair(t, dir)
+	iso := filepath.Join(dir, "cryptos-amd64-vmware-unsigned-abc1234.iso")
+	built := isotest.Build(t, bytes.Repeat([]byte("not a PE "), 1000), isotest.Options{GPT: true})
+	if err := os.WriteFile(iso, built.Image, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runSign(t, "--image", iso, "--key", keyPath, "--cert", certPath)
+	if !errors.Is(err, ukisign.ErrNotUKI) {
+		t.Fatalf("err = %v, want ErrNotUKI", err)
+	}
+	for _, name := range []string{"cryptos-amd64-vmware-abc1234.iso", "cryptos-amd64-vmware-abc1234.uki", "cryptos-amd64-vmware-abc1234.uki.sig"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s was written for a refused ISO", name)
 		}
 	}
 }
