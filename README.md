@@ -75,6 +75,8 @@ task e2e:kind    # Linux + docker: cert-manager in kind gets a certificate over 
 
 This repo builds no bootable image. The hardened kernel, SquashFS rootfs, UKI assembly, Secure Boot signing, the installer ISO and the QEMU + `swtpm` integration suites all live in [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), which requires this module at a pinned version and builds `init`, `cryptosctl` and the console by import path. See that repo's README and `docs/secure-boot.md` for building, signing and Secure Boot key custody.
 
+The release assets are unsigned and carry no upgrade anchor. `cryptosctl image sign --image <unsigned.uki> --key <key.pem> --cert <cert.pem>` signs one with your own Secure Boot key and adds your certificate as its upgrade anchor, so a node installed from it takes signed in-place upgrades. [`docs/image-sign.md`](docs/image-sign.md) covers it.
+
 ## 🤖 Continuous integration
 
 GitHub Actions:

@@ -22,6 +22,7 @@ limitations under the License.
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ import (
 	"github.com/spf13/cobra"
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
+	"github.com/CryptOS-PKI/cryptos-node/internal/ukisign"
 )
 
 // imageChunkBytes is the upload chunk size. The server's default gRPC receive
@@ -52,6 +54,7 @@ func newImageCmd(opts *globalOpts) *cobra.Command {
 		newImageStageCmd(opts),
 		newImageRollbackCmd(opts),
 		newImageActivateCmd(opts),
+		newImageSignCmd(),
 	)
 
 	return cmd
@@ -261,6 +264,98 @@ func newImageActivateCmd(opts *globalOpts) *cobra.Command {
 	cmd.Flags().StringVar(&confirm, "confirm", "", "the node's CA common name, echoed to authorize the reboot")
 
 	return cmd
+}
+
+// newImageSignCmd signs an unsigned UKI with the operator's own key and makes
+// that key the image's upgrade anchor (cryptos-appliance#41). It runs on the
+// workstation and never talks to a node.
+func newImageSignCmd() *cobra.Command {
+	var (
+		imagePath string
+		keyPath   string
+		certPath  string
+		outPath   string
+	)
+	cmd := &cobra.Command{
+		Use:   "sign",
+		Short: "Sign an unsigned image with your key and make it the upgrade anchor",
+		Long: "Sign an unsigned CryptOS image (UKI) with your own Secure Boot key. The " +
+			"certificate is added to the image as its upgrade anchor, the image is " +
+			"Authenticode-signed for Secure Boot, and the detached release signature " +
+			"'image stage' sends is written beside it as <out>.sig. A node installed " +
+			"from the signed image takes in-place upgrades signed by the same key. " +
+			"Runs locally; it does not contact a node.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			switch {
+			case imagePath == "":
+				return errors.New("--image is required")
+			case keyPath == "":
+				return errors.New("--key is required")
+			case certPath == "":
+				return errors.New("--cert is required")
+			}
+			if outPath == "" {
+				outPath = ukisign.DefaultOut(imagePath)
+			}
+			if outPath == imagePath {
+				return errors.New("--out must differ from --image")
+			}
+
+			image, err := os.ReadFile(imagePath)
+			if err != nil {
+				return fmt.Errorf("read the image: %w", err)
+			}
+			keyPEM, err := os.ReadFile(keyPath)
+			if err != nil {
+				return fmt.Errorf("read the key: %w", err)
+			}
+			key, err := ukisign.ParseKey(keyPEM)
+			if err != nil {
+				return err
+			}
+			certBytes, err := os.ReadFile(certPath)
+			if err != nil {
+				return fmt.Errorf("read the certificate: %w", err)
+			}
+			cert, err := ukisign.ParseCertificate(certBytes)
+			if err != nil {
+				return err
+			}
+
+			res, err := ukisign.Sign(image, key, cert)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(outPath, res.Image, 0o644); err != nil {
+				return fmt.Errorf("write the signed image: %w", err)
+			}
+			sigPath := outPath + ".sig"
+			if err := os.WriteFile(sigPath, res.Signature, 0o644); err != nil {
+				return fmt.Errorf("write the release signature: %w", err)
+			}
+
+			return writeImageSigned(cmd.OutOrStdout(), outPath, sigPath, res.Image, cert)
+		},
+	}
+	cmd.Flags().StringVar(&imagePath, "image", "", "unsigned CryptOS image (UKI) to sign")
+	cmd.Flags().StringVar(&keyPath, "key", "", "RSA signing key, PEM (PKCS#1 or PKCS#8, not encrypted)")
+	cmd.Flags().StringVar(&certPath, "cert", "", "signing certificate, PEM or DER; it becomes the upgrade anchor")
+	cmd.Flags().StringVar(&outPath, "out", "", "signed image path (default: <image> without .unsigned, else <image>.signed.uki)")
+
+	return cmd
+}
+
+// writeImageSigned reports what was written and which certificate the image
+// now trusts for upgrades, by subject and SHA-256 fingerprint.
+func writeImageSigned(w io.Writer, outPath, sigPath string, image []byte, cert *x509.Certificate) error {
+	sum := sha256.Sum256(image)
+	fp := sha256.Sum256(cert.Raw)
+	_, err := fmt.Fprintf(w,
+		"Signed image:     %s\nImage SHA-256:    %s\nRelease sig:      %s\nUpgrade anchor:   %s\nAnchor SHA-256:   %s\n",
+		outPath, hex.EncodeToString(sum[:]), sigPath, cert.Subject.String(), hex.EncodeToString(fp[:]))
+
+	return err
 }
 
 // writeImageStatus renders an ImageStatus, human by default like the other
