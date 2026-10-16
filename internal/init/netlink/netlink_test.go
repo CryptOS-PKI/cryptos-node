@@ -275,6 +275,65 @@ func TestBringUpLoopback_Builds(t *testing.T) {
 	}
 }
 
+func TestSetLinkUp_SendsOneNewLink(t *testing.T) {
+	f := &fakeNetlink{indexByName: map[string]int{"eth0": 3}}
+	if err := setLinkUp("eth0", f.index, f.send); err != nil {
+		t.Fatalf("setLinkUp: %v", err)
+	}
+	if len(f.sent) != 1 || native.Uint16(f.sent[0][4:6]) != rtmNewLink {
+		t.Fatalf("sent %d requests, want one RTM_NEWLINK", len(f.sent))
+	}
+	if native.Uint32(f.sent[0][nlmsghdrLen+4:nlmsghdrLen+8]) != 3 {
+		t.Error("ifi_index != 3")
+	}
+}
+
+// A self-assigned link-local address is added beside whatever the interface
+// has: no flush, no dump, no default route.
+func TestAddAddress_LinkUpThenAddrOnly(t *testing.T) {
+	f := &fakeNetlink{indexByName: map[string]int{"eth0": 3}}
+	p := netip.MustParsePrefix("169.254.12.34/16")
+	if err := addAddress("eth0", p, f.index, f.send); err != nil {
+		t.Fatalf("addAddress: %v", err)
+	}
+	if len(f.sent) != 2 {
+		t.Fatalf("sent %d requests, want 2 (link up, addr)", len(f.sent))
+	}
+	for i, want := range []uint16{rtmNewLink, rtmNewAddr} {
+		if got := native.Uint16(f.sent[i][4:6]); got != want {
+			t.Errorf("request[%d] type = %d, want %d", i, got, want)
+		}
+	}
+	body := f.sent[1][nlmsghdrLen:]
+	if body[1] != 16 {
+		t.Errorf("prefixlen = %d, want 16", body[1])
+	}
+}
+
+func TestAddAddress_Errors(t *testing.T) {
+	f := &fakeNetlink{indexByName: map[string]int{"eth0": 3}}
+	if err := addAddress("eth0", netip.MustParsePrefix("fe80::1/64"), f.index, f.send); err == nil {
+		t.Error("IPv6 prefix should error")
+	}
+	if err := addAddress("eth0", netip.Prefix{}, f.index, f.send); err == nil {
+		t.Error("zero prefix should error")
+	}
+	if len(f.sent) != 0 {
+		t.Errorf("invalid prefix still sent %d requests", len(f.sent))
+	}
+	fi := &fakeNetlink{indexErr: errors.New("no such device")}
+	if err := addAddress("eth0", netip.MustParsePrefix("169.254.1.1/16"), fi.index, fi.send); err == nil {
+		t.Error("index error should propagate")
+	}
+	fs := &fakeNetlink{indexByName: map[string]int{"eth0": 3}, sendErr: errors.New("boom")}
+	if err := addAddress("eth0", netip.MustParsePrefix("169.254.1.1/16"), fs.index, fs.send); err == nil {
+		t.Error("send error should propagate")
+	}
+	if len(fs.sent) != 1 {
+		t.Errorf("after link-up failure, sent = %d, want 1 (aborts)", len(fs.sent))
+	}
+}
+
 // buildFakeAddrMsg assembles a minimal RTM_NEWADDR netlink message for
 // ifIndex with the given IPv4 prefix. Used to seed parseAddrMessages tests
 // and the configure flush tests.

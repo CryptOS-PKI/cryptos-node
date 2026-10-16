@@ -21,6 +21,7 @@ limitations under the License.
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -45,6 +46,17 @@ func BringUpLoopback() error {
 // route via cfg.Gateway.
 func ConfigureInterface(cfg Config) error {
 	return configure(cfg, interfaceIndex, sendAck, sendDump)
+}
+
+// SetLinkUp sets the named interface up.
+func SetLinkUp(name string) error {
+	return setLinkUp(name, interfaceIndex, sendAck)
+}
+
+// AddAddress brings the named interface up and adds the IPv4 prefix p to it,
+// leaving any address it already has in place.
+func AddAddress(name string, p netip.Prefix) error {
+	return addAddress(name, p, interfaceIndex, sendAck)
 }
 
 // sendDump opens an AF_NETLINK route socket, sends a dump request

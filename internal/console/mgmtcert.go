@@ -92,10 +92,26 @@ func readManagementCert(path string) *x509.Certificate {
 	return cert
 }
 
-// ManagementAddrs returns, in order, the addresses in addrs an operator can
-// reach the management listener on: IPv4 only, since the node configures no
-// IPv6, and neither loopback nor link-local.
+// ManagementAddrs returns, in order, the routable addresses in addrs an
+// operator can reach the management listener on: IPv4 only, since the node
+// configures no IPv6, and neither loopback nor link-local.
 func ManagementAddrs(addrs []net.Addr) []string {
+	return ipv4Addrs(addrs, func(ip net.IP) bool { return !ip.IsLoopback() && !ip.IsLinkLocalUnicast() })
+}
+
+// ReachableAddrs returns ManagementAddrs when there is at least one, else the
+// IPv4 link-local (169.254.0.0/16) addresses in addrs. A maintenance node on
+// a network with no DHCP server has only the link-local address it assigned
+// itself, and a laptop cabled straight to it reaches the listener there. IPv6
+// link-local addresses are never returned: the node configures no IPv6.
+func ReachableAddrs(addrs []net.Addr) []string {
+	if out := ManagementAddrs(addrs); len(out) > 0 {
+		return out
+	}
+	return ipv4Addrs(addrs, net.IP.IsLinkLocalUnicast)
+}
+
+func ipv4Addrs(addrs []net.Addr, keep func(net.IP) bool) []string {
 	var out []string
 	for _, a := range addrs {
 		var ip net.IP
@@ -106,7 +122,7 @@ func ManagementAddrs(addrs []net.Addr) []string {
 			ip = v.IP
 		}
 		ip4 := ip.To4()
-		if ip4 == nil || ip4.IsLoopback() || ip4.IsLinkLocalUnicast() {
+		if ip4 == nil || !keep(ip4) {
 			continue
 		}
 		out = append(out, ip4.String())
@@ -114,12 +130,12 @@ func ManagementAddrs(addrs []net.Addr) []string {
 	return out
 }
 
-// LocalManagementAddrs returns ManagementAddrs for this host's interfaces, or
+// LocalManagementAddrs returns ReachableAddrs for this host's interfaces, or
 // nil when they cannot be read.
 func LocalManagementAddrs() []string {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return nil
 	}
-	return ManagementAddrs(addrs)
+	return ReachableAddrs(addrs)
 }

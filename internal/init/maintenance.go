@@ -72,8 +72,10 @@ func startConsoleSocket(ctx context.Context) func() {
 }
 
 // runMaintenance brings up the limited maintenance service. Loopback is up and
-// the kernel has configured the primary interface via ip=dhcp, so we only serve
-// the management API with a self-signed maintenance cert and NO client
+// the kernel has configured the primary interface via ip=dhcp; when no DHCP
+// server answered, startLinkLocalFallback gives an interface a self-assigned
+// 169.254.0.0/16 address instead. We only serve the management API, on every
+// address (0.0.0.0), with a self-signed maintenance cert and NO client
 // verification (Talos --insecure). No TPM, LUKS, etcd, or ceremony. Parks until
 // a shutdown signal or a successful install (which triggers reboot), then
 // returns so PID 1 reboots.
@@ -81,6 +83,7 @@ func runMaintenance(ctx context.Context) error {
 	if err := netlink.BringUpLoopback(); err != nil {
 		return err
 	}
+	defer startLinkLocalFallback(ctx)()
 	serverCert, removeCert, err := newMaintenanceCert(console.ManagementCertPath)
 	if err != nil {
 		return err
@@ -145,6 +148,7 @@ func runReprovisionMaintenance(ctx context.Context, cfgStore *config.FileStore, 
 	if err := netlink.BringUpLoopback(); err != nil {
 		return err
 	}
+	defer startLinkLocalFallback(ctx)()
 	serverCert, removeCert, err := newMaintenanceCert(console.ManagementCertPath)
 	if err != nil {
 		return err

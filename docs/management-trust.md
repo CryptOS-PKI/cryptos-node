@@ -93,6 +93,24 @@ certificate; reach it with `--insecure`. It has no configured address, only the
 one DHCP gave it, so its console shows that address under **Address** and the
 certificate's **Mgmt SHA-256**.
 
+With no DHCP server on the link (a laptop cabled straight to the node, for
+example), the node assigns itself an IPv4 link-local address (RFC 3927) in
+169.254.0.0/16 on the first interface with a cable in, and the console shows
+that address instead. The address is derived from the interface's MAC, so the
+node comes back on the same one every boot. A routable address always takes
+priority: the link-local one is only assigned, and only shown, when the node
+has no other IPv4 address. Give the laptop a self-assigned 169.254.x.x address
+too (most operating systems do this on their own when DHCP gets no answer) and
+reach the node at the console's address:
+
+```sh
+cryptosctl --endpoint 169.254.x.x:443 --insecure config apply -f node.yaml
+```
+
+The maintenance certificate names only `localhost`, whatever the address, so
+`--insecure` is what reaches it on a DHCP address and on a link-local one alike;
+the check is the console's **Mgmt SHA-256**, as below.
+
 > [!CAUTION]
 > Compare the console's **Mgmt SHA-256** with the fingerprint the Fleet
 > Manager's adoption preview (or `openssl s_client`) shows before you adopt the
@@ -120,7 +138,8 @@ same form as on the serving dashboard:
 | Intermediate or issuing CA waiting for its parent | **Awaiting parent certificate** | Fetch trust, then get the CSR signed |
 
 Only the maintenance screen also shows an **Address** line: the node's IPv4
-addresses, one per line. An installed node uses the address in its config.
+addresses, one per line, or its self-assigned 169.254.x.x address when it has
+no other. An installed node uses the address in its config.
 
 The two screens an adoption compares against say which check they are: under
 the fingerprint, the maintenance screen shows **check 1/2: compare with the
