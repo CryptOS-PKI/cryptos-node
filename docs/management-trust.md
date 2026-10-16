@@ -99,8 +99,9 @@ example), the node assigns itself an IPv4 link-local address (RFC 3927) in
 that address instead. The address is derived from the interface's MAC, so the
 node comes back on the same one every boot. A routable address always takes
 priority: the link-local one is only assigned, and only shown, when the node
-has no other IPv4 address. Give the laptop a self-assigned 169.254.x.x address
-too (most operating systems do this on their own when DHCP gets no answer) and
+has no other IPv4 address. Give the laptop a 169.254.x.x address too (macOS
+and Windows assign one on their own when DHCP gets no answer; on Linux set the
+connection's IPv4 method to link-local, or add one with `ip addr add`) and
 reach the node at the console's address:
 
 ```sh
