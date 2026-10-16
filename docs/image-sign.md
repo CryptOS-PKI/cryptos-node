@@ -19,10 +19,15 @@ A node installed from an image you signed this way takes signed in-place
 upgrades: any later image you sign with the same key can be staged onto it
 with `cryptosctl image stage`.
 
+It signs an unsigned ISO the same way, so you can install from a signed ISO
+without rebuilding it; see [Sign an ISO](#sign-an-iso).
+
 ## Before you start
 
-- An unsigned CryptOS UKI, for example a release asset or
-  `build/out/cryptos-amd64.uki.unsigned` from a cryptos-appliance build.
+- An unsigned CryptOS UKI or ISO, for example a release asset, or
+  `build/out/cryptos-amd64.uki.unsigned` or
+  `build/out/cryptos-amd64-vmware-unsigned-<build>.iso` from a
+  cryptos-appliance build.
 - Your Secure Boot signing key as an unencrypted RSA PEM file (PKCS#1 or
   PKCS#8), and its certificate as PEM or DER. This is the certificate
   enrolled in your machines' Secure Boot db. Keep the key file readable by you
@@ -61,6 +66,53 @@ with `cryptosctl image stage`.
    ```
 
    `image stage` picks up `cryptos-amd64.uki.sig` by default.
+
+## Sign an ISO
+
+Give `--image` an ISO instead of a UKI. The command tells the two apart by
+their content, not their names. It needs no root, no `xorriso` and no rebuild.
+
+1. Sign it:
+
+   ```sh
+   cryptosctl image sign \
+     --image cryptos-amd64-vmware-unsigned-v0.1.0.iso \
+     --key release.key \
+     --cert release.crt
+   ```
+
+   It signs the UKI inside the ISO exactly as it signs a UKI on its own, then
+   writes the signed UKI back over every copy the ISO carries:
+
+   - `EFI/BOOT/BOOTX64.EFI` in the EFI boot image, which the firmware boots;
+   - `/cryptos.uki`, which the installer copies to the disk it installs.
+
+   It writes three files. With no `--out`, the signed ISO is the input name
+   without `-unsigned` (`cryptos-amd64-vmware-v0.1.0.iso`); an input with any
+   other name gets `.signed.iso`. Beside the ISO it writes the signed UKI,
+   named like the ISO with `.uki` in place of `.iso`
+   (`cryptos-amd64-vmware-v0.1.0.uki`), and that UKI's release signature
+   (`cryptos-amd64-vmware-v0.1.0.uki.sig`). The command prints each place in
+   the ISO it signed, the paths and the SHA-256 of the ISO and the UKI.
+
+   Before it writes anything, it reads the new ISO back, checks that every
+   copy is the signed UKI, and checks the signature and the anchor.
+
+2. Optionally, check the Secure Boot signature on the UKI written beside the
+   ISO, the same bytes as the copies inside it:
+
+   ```sh
+   sbverify --cert release.crt cryptos-amd64-vmware-v0.1.0.uki
+   ```
+
+3. Install a node from the signed ISO. Keep the signed `.uki` and `.sig`:
+   they are what you stage onto a node, and later ISOs or UKIs you sign with
+   the same key upgrade every node installed from this one.
+
+> [!CAUTION]
+> The EFI boot image inside the ISO keeps its size. A cryptos-appliance build
+> leaves 2 MiB free in it, far more than signing adds, but an ISO built some
+> other way with no free space is refused, and nothing is written.
 
 ## What it changes in the image
 
