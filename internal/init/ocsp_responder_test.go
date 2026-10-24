@@ -25,9 +25,12 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"math/big"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ocsp"
 
 	"github.com/CryptOS-PKI/cryptos-node/internal/ca"
 	"github.com/CryptOS-PKI/cryptos-node/internal/node"
@@ -173,6 +176,73 @@ func TestOCSPResponderEnsureReusesFresh(t *testing.T) {
 	}
 	if first.SerialNumber.Cmp(second.SerialNumber) != 0 {
 		t.Errorf("ensure re-minted a still-fresh responder: serials %s != %s", first.SerialNumber, second.SerialNumber)
+	}
+}
+
+// After a CA re-key the stored responder is still fresh, but it was signed by
+// the discarded key. Responses for the new key's leaves have to chain to the
+// new CA certificate, so the responder must be re-minted under the new key
+// (#383).
+func TestOCSPResponderRemintsAfterCAReKey(t *testing.T) {
+	f, mgr, ctx := newOCSPResponderFixture(t, 7*24*time.Hour)
+
+	before, _, err := mgr.ensure(ctx)
+	if err != nil {
+		t.Fatalf("ensure before re-key: %v", err)
+	}
+
+	newKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey new CA key: %v", err)
+	}
+	p := ca.Profile{
+		Subject:   f.issuer.Subject,
+		NotBefore: time.Now().Add(-time.Minute),
+		NotAfter:  time.Now().Add(5 * 365 * 24 * time.Hour),
+		IsCA:      true,
+		KeyUsage:  x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+	}
+	der, _, err := ca.Sign(p, newKey.Public(), nil, newKey)
+	if err != nil {
+		t.Fatalf("ca.Sign re-keyed issuer: %v", err)
+	}
+	newIssuer, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatalf("ParseCertificate re-keyed issuer: %v", err)
+	}
+	f.issuer, f.caKey = newIssuer, newKey
+
+	after, afterKey, err := mgr.ensure(ctx)
+	if err != nil {
+		t.Fatalf("ensure after re-key: %v", err)
+	}
+	if after.SerialNumber.Cmp(before.SerialNumber) == 0 {
+		t.Fatal("ensure kept the responder signed by the old CA key")
+	}
+	if err := after.CheckSignatureFrom(newIssuer); err != nil {
+		t.Fatalf("responder does not chain to the re-keyed CA: %v", err)
+	}
+
+	respDER, err := ocsp.CreateResponse(newIssuer, after, ocsp.Response{
+		Status:       ocsp.Good,
+		SerialNumber: big.NewInt(42),
+		ThisUpdate:   time.Now(),
+		NextUpdate:   time.Now().Add(time.Hour),
+		Certificate:  after,
+	}, afterKey)
+	if err != nil {
+		t.Fatalf("CreateResponse: %v", err)
+	}
+	if _, err := ocsp.ParseResponse(respDER, newIssuer); err != nil {
+		t.Fatalf("a client checking against the re-keyed CA rejects the response: %v", err)
+	}
+
+	again, _, err := mgr.ensure(ctx)
+	if err != nil {
+		t.Fatalf("ensure after re-mint: %v", err)
+	}
+	if again.SerialNumber.Cmp(after.SerialNumber) != 0 {
+		t.Error("ensure re-minted the responder again after it was renewed under the new key")
 	}
 }
 

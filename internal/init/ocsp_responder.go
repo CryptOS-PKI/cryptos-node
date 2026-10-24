@@ -23,6 +23,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/asn1"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/CryptOS-PKI/cryptos-node/internal/ca"
@@ -100,8 +101,14 @@ func (r *ocspResponder) ensure(ctx context.Context) (*x509.Certificate, crypto.S
 }
 
 // loadStored returns the persisted responder cert+key when one exists, parses,
-// and is still outside the renewal window. Any failure (absent, unparsable,
-// expiring) reports ok=false so the caller re-mints.
+// was signed by the current CA certificate, and is still outside the renewal
+// window. Any failure (absent, unparsable, signed by another key, expiring)
+// reports ok=false so the caller re-mints.
+//
+// The signature check is what renews the responder after a CA re-key: the
+// rotation swaps the CA key and certificate but leaves the stored responder,
+// still fresh, signed by the discarded key, and a client checking against the
+// new CA certificate rejects responses it signs (#383).
 //
 // The window is half the lifetime a re-mint could actually get: ca.Sign caps
 // the responder at the issuer's notAfter, so once the issuer has less than the
@@ -118,6 +125,11 @@ func (r *ocspResponder) loadStored(ctx context.Context) (*x509.Certificate, cryp
 	}
 	achievable := r.validity
 	if issuer, err := r.issuer(ctx); err == nil && issuer != nil {
+		if err := cert.CheckSignatureFrom(issuer); err != nil {
+			log.Printf("OCSP responder: stored certificate (serial %s) is not signed by the current CA certificate, re-minting: %v",
+				cert.SerialNumber.Text(16), err)
+			return nil, nil, false
+		}
 		achievable = min(achievable, time.Until(issuer.NotAfter))
 	}
 	remaining := time.Until(cert.NotAfter)
