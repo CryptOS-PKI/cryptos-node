@@ -22,6 +22,6 @@ import "errors"
 
 // LocateBootUKI is Linux-only; CryptOS only ever boots on Linux. This stub
 // keeps the package buildable on a developer workstation.
-func LocateBootUKI() (string, error) {
+func LocateBootUKI(string) (string, error) {
 	return "", errors.New("init: LocateBootUKI: boot-media location is linux-only")
 }
