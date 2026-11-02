@@ -111,6 +111,19 @@ const (
 	// responder key.
 	KeyOCSPResponderKeyPublic = "/cryptos/pki/ocsp-responder/key-public"
 
+	// KeyOCSPPreviousResponderCert holds the DER of the responder retired by the
+	// last CA re-key. It answers OCSP for leaves of the discarded CA key until
+	// it expires, at most the responder validity after the re-key.
+	KeyOCSPPreviousResponderCert = "/cryptos/pki/ocsp-responder/previous/cert"
+
+	// KeyOCSPPreviousResponderKeyBlob holds the retired responder's private key
+	// in the same encoding as KeyOCSPResponderKeyBlob.
+	KeyOCSPPreviousResponderKeyBlob = "/cryptos/pki/ocsp-responder/previous/key-blob"
+
+	// KeyOCSPPreviousResponderCACert holds the DER of the CA certificate the
+	// retired responder chains to.
+	KeyOCSPPreviousResponderCACert = "/cryptos/pki/ocsp-responder/previous/ca-cert"
+
 	// PrefixCeremonyManifests stores one signed Ceremony Manifest per
 	// ceremony run, keyed by ceremony ID under this prefix.
 	PrefixCeremonyManifests = "/cryptos/ceremony/manifests/"

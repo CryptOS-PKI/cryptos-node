@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
@@ -225,8 +226,18 @@ func (r *nodeRevoker) caCertFn() func(ctx context.Context) ([]byte, error) {
 // signing with the delegated responder key rather than the CA key. If the
 // responder cannot be ensured (CA key unavailable) the request fails; the HTTP
 // layer maps that to internalError.
+//
+// A request naming the CA key a re-key retired is answered by the responder kept
+// for that key, checked first because it needs neither the CA key nor a current
+// responder. Its leaves chain only to the old CA certificate, so an answer from
+// the current responder would not verify (#387).
 func (r *nodeRevoker) ocspFn(resp *revocation.OCSPResponder, responder *ocspResponder) func(ctx context.Context, reqDER []byte) ([]byte, error) {
 	return func(ctx context.Context, reqDER []byte) ([]byte, error) {
+		now := time.Now().UTC()
+		if prev, ok := responder.previousFor(ctx, reqDER, now); ok {
+			log.Printf("OCSP: answering for the previous CA key with responder serial %s", prev.cert.SerialNumber.Text(16))
+			return resp.Respond(ctx, reqDER, prev.issuer, prev.cert, prev.key, now)
+		}
 		responderCert, responderKey, err := responder.ensure(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("init: ensure OCSP responder: %w", err)
@@ -235,7 +246,7 @@ func (r *nodeRevoker) ocspFn(resp *revocation.OCSPResponder, responder *ocspResp
 		if err != nil {
 			return nil, fmt.Errorf("init: load issuer for OCSP: %w", err)
 		}
-		return resp.Respond(ctx, reqDER, issuer, responderCert, responderKey, time.Now().UTC())
+		return resp.Respond(ctx, reqDER, issuer, responderCert, responderKey, now)
 	}
 }
 
