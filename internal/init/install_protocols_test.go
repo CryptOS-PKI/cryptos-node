@@ -66,7 +66,7 @@ func TestMaintenanceInstaller_CarriesProtocolBlocks(t *testing.T) {
 	var staged []byte
 	inst := &maintenanceInstaller{
 		rebootCh:    make(chan struct{}, 1),
-		doLocateUKI: func() (string, error) { return "/fake/uki.efi", nil },
+		doLocateUKI: func(string) (string, error) { return "/fake/uki.efi", nil },
 		doInstall: func(_ context.Context, o install.Options, _ install.Runner, _ string, _ func(string, string) error, _ install.Deps) error {
 			staged = o.ConfigYAML
 			return nil
@@ -95,7 +95,7 @@ func TestMaintenanceInstaller_RejectsEmptySecret(t *testing.T) {
 	called := false
 	inst := &maintenanceInstaller{
 		rebootCh:    make(chan struct{}, 1),
-		doLocateUKI: func() (string, error) { return "/fake/uki.efi", nil },
+		doLocateUKI: func(string) (string, error) { return "/fake/uki.efi", nil },
 		doInstall: func(context.Context, install.Options, install.Runner, string, func(string, string) error, install.Deps) error {
 			called = true
 			return nil

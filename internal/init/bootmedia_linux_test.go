@@ -39,7 +39,7 @@ func TestLocateBootUKI_ResolvesESPLabel(t *testing.T) {
 	// locateBootUKIIn will resolve sda2, then attempt a real mount — which
 	// will fail in the test environment. We confirm it got past the
 	// resolution step (the error is about mount, not "no partition named").
-	_, err := locateBootUKIIn(root)
+	_, err := locateBootUKIIn(root, "")
 	if err == nil {
 		// Unexpectedly succeeded — only possible if /dev/sda2 exists and is
 		// a mountable vfat device, which is not the case in CI.
@@ -57,7 +57,7 @@ func TestLocateBootUKI_NotFound(t *testing.T) {
 	root := t.TempDir()
 	writeUevent(t, root, "sda1", "DEVNAME=sda1\nPARTNAME=cryptos-state\n")
 
-	_, err := locateBootUKIIn(root)
+	_, err := locateBootUKIIn(root, "")
 	if err == nil {
 		t.Fatal("expected error when no EFI partition and no CD-ROM present, got nil")
 	}
@@ -77,12 +77,12 @@ func TestLocateBootUKI_CDROMFallback(t *testing.T) {
 	// Only a data partition — no EFI label — and a CD-ROM device.
 	writeUevent(t, root, "sda1", "MAJOR=8\nMINOR=1\nDEVNAME=sda1\nDEVTYPE=partition\nPARTNAME=cryptos-state\n")
 	// sr0 is a directory entry in /sys/class/block; no uevent needed for the
-	// device-name scan (findCDROMDeviceIn only uses ReadDir names).
+	// device-name scan (CD-ROM discovery only uses ReadDir names).
 	if err := writeSysfsDir(t, root, "sr0"); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
-	_, err := locateBootUKIIn(root)
+	_, err := locateBootUKIIn(root, "")
 	if err == nil {
 		// Only possible if /dev/sr0 is a real mountable ISO — not expected in CI.
 		t.Fatal("expected an error from iso9660 mount in test environment, got nil")
@@ -101,67 +101,8 @@ func TestLocateBootUKI_CDROMFallback(t *testing.T) {
 	}
 }
 
-// TestFindCDROMDeviceIn_Found verifies that findCDROMDeviceIn returns /dev/sr0
-// when an sr0 directory exists in the fake sysfs root.
-func TestFindCDROMDeviceIn_Found(t *testing.T) {
-	root := t.TempDir()
-	if err := writeSysfsDir(t, root, "sr0"); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	// Decoy: a plain disk device that should not match.
-	if err := writeSysfsDir(t, root, "sda"); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	got, err := findCDROMDeviceIn(root)
-	if err != nil {
-		t.Fatalf("findCDROMDeviceIn: %v", err)
-	}
-	if want := "/dev/sr0"; got != want {
-		t.Errorf("device = %q, want %q", got, want)
-	}
-}
-
-// TestFindCDROMDeviceIn_NotFound verifies that findCDROMDeviceIn returns an
-// error when no sr* directory exists in the fake sysfs root.
-func TestFindCDROMDeviceIn_NotFound(t *testing.T) {
-	root := t.TempDir()
-	if err := writeSysfsDir(t, root, "sda"); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	_, err := findCDROMDeviceIn(root)
-	if err == nil {
-		t.Fatal("expected error when no sr* device present, got nil")
-	}
-	if !strings.Contains(err.Error(), "no sr*") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// TestFindCDROMDeviceIn_MultipleDevices verifies that findCDROMDeviceIn returns
-// the first sr* device when multiple are present.
-func TestFindCDROMDeviceIn_MultipleDevices(t *testing.T) {
-	root := t.TempDir()
-	if err := writeSysfsDir(t, root, "sr0"); err != nil {
-		t.Fatalf("setup sr0: %v", err)
-	}
-	if err := writeSysfsDir(t, root, "sr1"); err != nil {
-		t.Fatalf("setup sr1: %v", err)
-	}
-
-	got, err := findCDROMDeviceIn(root)
-	if err != nil {
-		t.Fatalf("findCDROMDeviceIn: %v", err)
-	}
-	// Either sr0 or sr1 is acceptable; just confirm it is an sr* device.
-	if !strings.HasPrefix(got, "/dev/sr") {
-		t.Errorf("device = %q, want /dev/sr*", got)
-	}
-}
-
 // writeSysfsDir creates an empty directory at root/name to simulate a sysfs
-// block device entry (findCDROMDeviceIn only needs the directory to exist).
+// block device entry (CD-ROM discovery only needs the directory to exist).
 func writeSysfsDir(t *testing.T, root, name string) error {
 	t.Helper()
 	return os.MkdirAll(filepath.Join(root, name), 0o755)

@@ -33,7 +33,7 @@ import (
 type installFn func(ctx context.Context, o install.Options, r install.Runner, mountDir string, copyFn func(dst, src string) error, d install.Deps) error
 
 // locateBootUKIFn is the signature of LocateBootUKI, injectable for tests.
-type locateBootUKIFn func() (string, error)
+type locateBootUKIFn func(targetDisk string) (string, error)
 
 // maintenanceInstaller implements grpc.Installer for the maintenance-mode
 // ApplyConfig path. It validates the config, locates the boot UKI on the ESP,
@@ -77,7 +77,7 @@ func (m *maintenanceInstaller) Install(ctx context.Context, cfg *nodev1.MachineC
 	if locateUKI == nil {
 		locateUKI = LocateBootUKI
 	}
-	uki, err := locateUKI()
+	uki, err := locateUKI(parsed.Install.Disk)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "apply-config: locate boot UKI: %v", err)
 	}

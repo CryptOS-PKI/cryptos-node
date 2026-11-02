@@ -19,7 +19,6 @@ limitations under the License.
 */
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,22 +70,4 @@ func resolveStateDeviceIn(root, label string) (string, error) {
 func stateDeviceMissing(label string) bool {
 	_, err := resolveStateDevice(label)
 	return err != nil
-}
-
-// parseUevent reads a sysfs uevent file into a KEY=value map.
-func parseUevent(path string) (map[string]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-	m := make(map[string]string)
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		k, v, ok := strings.Cut(sc.Text(), "=")
-		if ok {
-			m[k] = v
-		}
-	}
-	return m, sc.Err()
 }
