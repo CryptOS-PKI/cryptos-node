@@ -885,6 +885,9 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 				if _, _, err := ocspResponderMgr.ensure(ctx); err != nil {
 					log.Printf("OCSP responder: renewal ensure failed: %v", err)
 				}
+				if err := ocspResponderMgr.dropExpiredPrevious(ctx, time.Now()); err != nil {
+					log.Printf("OCSP responder: %v", err)
+				}
 			}
 			check()
 			t := time.NewTicker(30 * time.Second)

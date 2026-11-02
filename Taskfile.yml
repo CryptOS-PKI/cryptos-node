@@ -57,6 +57,15 @@ tasks:
       - go build -ldflags "{{.BUILDINFO}}" -o bin/cryptosctl ./cmd/cryptosctl
       - go build -ldflags "{{.BUILDINFO}}" -o bin/cryptos-install ./cmd/cryptos-install
 
+  build:windows:
+    desc: Cross-build cryptosctl for Windows (amd64 and arm64) so the build can't silently break
+    env:
+      CGO_ENABLED: "0"
+      GOOS: windows
+    cmds:
+      - GOARCH=amd64 go build -o bin/cryptosctl-windows-amd64.exe ./cmd/cryptosctl
+      - GOARCH=arm64 go build -o bin/cryptosctl-windows-arm64.exe ./cmd/cryptosctl
+
   proto:fmt:
     desc: Format the node API protos
     cmds:
@@ -135,6 +144,7 @@ tasks:
       - task: vet
       - task: test
       - task: build
+      - task: build:windows
 
   e2e:kind:
     desc: "[Linux] cert-manager in a kind cluster enrols over ACME with an in-process Intermediate (needs docker; skips without it)"

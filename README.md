@@ -63,6 +63,7 @@ Requires Go 1.26.10+ (the `go` line in `go.mod`; an older local Go downloads tha
 task ci          # fmt + proto lint + generated-code check + lint + vet + test + build
 task generate    # regenerate gen/go from proto/ with the pinned plugins (task tools)
 task build       # produces bin/init, bin/cryptosctl and bin/cryptos-install, stamped with the build identity
+task build:windows # cross-builds bin/cryptosctl-windows-amd64.exe and -arm64.exe
 task license     # re-inject Apache 2.0 headers via golic
 task e2e:kind    # Linux + docker: cert-manager in kind gets a certificate over ACME
 ```
@@ -81,7 +82,7 @@ The release assets are unsigned and carry no upgrade anchor. `cryptosctl image s
 
 GitHub Actions:
 
-- **`ci-go`** ([`ci-go.yml`](.github/workflows/ci-go.yml)) — `task ci` (format, proto lint, generated-code check, lint, vet, test, build) on every pull request + push to `main`, on a GitHub-hosted Linux runner, with `swtpm` installed for the TPM-held RSA CA test. Draft pull requests are skipped; CI runs when the PR is marked ready.
+- **`ci-go`** ([`ci-go.yml`](.github/workflows/ci-go.yml)) — `task ci` (format, proto lint, generated-code check, lint, vet, test, build, Windows cross-build of `cryptosctl`) on every pull request + push to `main`, on a GitHub-hosted Linux runner, with `swtpm` installed for the TPM-held RSA CA test. Draft pull requests are skipped; CI runs when the PR is marked ready.
 
 After a stacked pull request is retargeted onto `main`, CI starts on its next push, or when it is toggled to draft and back to ready.
 
@@ -123,7 +124,7 @@ Code signatures stay verifiable after the signing certificate expires when they 
 Most `config apply` changes report `requires_reboot=true`. Restart the node through its orderly shutdown rather than a hypervisor hard reset:
 
 > [!NOTE]
-> `cryptosctl` runs on Linux and macOS today. A Windows build is coming.
+> `cryptosctl` runs on Linux, macOS and Windows (amd64 and arm64).
 
 ```sh
 cryptosctl --endpoint pki-root.example:443 reboot --confirm "Example Root CA G1"
