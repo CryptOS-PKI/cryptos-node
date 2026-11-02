@@ -177,6 +177,20 @@ func (r *shutdownRequests) Wait(ctx context.Context) ShutdownAction {
 	return a
 }
 
+// Requested delivers shutdown requests to a path that parks on its own
+// select instead of Wait (maintenance mode). It must call take with what it
+// receives.
+func (r *shutdownRequests) Requested() <-chan ShutdownAction {
+	return r.ch
+}
+
+// take records a request received from Requested, so Action reports it.
+func (r *shutdownRequests) take(a ShutdownAction) {
+	r.mu.Lock()
+	r.chosen = a
+	r.mu.Unlock()
+}
+
 // Action is the action Wait returned, or ShutdownReboot if Wait never ran.
 func (r *shutdownRequests) Action() ShutdownAction {
 	r.mu.Lock()

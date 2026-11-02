@@ -37,6 +37,7 @@ internal/
   init/             # supervisor + boot bring-up
     netlink/        # NIC bring-up via rtnetlink
     mounts/         # early mount sequence
+  qga/              # in-process QEMU guest agent (allow-listed QGA commands only)
   timesync/         # client-only SNTPv4: boot step, periodic slew, clock floor
   tpm/              # go-tpm wrapper, SRK provisioning, crypto.Signer impl
   ca/               # RFC 5280 cert template builder
@@ -137,8 +138,13 @@ The same orderly shutdown also runs, without the API, when:
 - the ACPI power button is pressed (a hypervisor guest shutdown that goes through ACPI, such as `virsh shutdown`). The node **powers off**.
 - Ctrl-Alt-Del reaches the console (for example, the vSphere console's "Send Ctrl+Alt+Delete"; the VMware image carries the PS/2 keyboard driver for this). The node **reboots**.
 - PID 1 receives `SIGTERM` or `SIGINT`. The node **reboots**.
+- a QEMU/KVM host sends `guest-shutdown` through the built-in guest agent (Proxmox "Shutdown" or "Reboot" with "QEMU Guest Agent" on). `powerdown` and `halt` **power off**; `reboot` **reboots**. This also works in maintenance mode.
 
-The image ships no guest tools, so a vSphere "Shut Down Guest OS" or "Restart Guest OS" request is not available. Use `cryptosctl reboot`, or the console's Ctrl+Alt+Delete.
+The image ships no VMware guest tools, so a vSphere "Shut Down Guest OS" or "Restart Guest OS" request is not available. Use `cryptosctl reboot`, or the console's Ctrl+Alt+Delete.
+
+### QEMU guest agent
+
+On a QEMU/KVM VM with a guest agent channel (the virtio-serial port `org.qemu.guest_agent.0`, which Proxmox adds when "QEMU Guest Agent" is on), PID 1 answers the QGA protocol itself; there is no `qemu-ga` binary. It answers only `guest-sync`, `guest-sync-delimited`, `guest-ping`, `guest-info`, `guest-get-osinfo`, `guest-get-host-name`, `guest-get-time`, `guest-get-timezone`, `guest-network-get-interfaces`, `guest-shutdown` and `guest-fsfreeze-status` (always `thawed`). Everything else, including `guest-exec`, the `guest-file-*` commands, `guest-set-user-password`, the `guest-ssh-*` commands and `guest-fsfreeze-freeze`, gets the `CommandNotFound` error a locked-down `qemu-ga` sends. Without the channel (bare metal, VMware, or the agent turned off) the agent never starts; the boot log says which. The image's kernel needs `CONFIG_VIRTIO_CONSOLE`, which the Proxmox platform build in `cryptos-appliance` turns on.
 
 ## 🚦 Status
 
