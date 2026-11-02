@@ -89,7 +89,7 @@ func TestMaintenanceInstaller_InstallSuccess(t *testing.T) {
 	var installCalled bool
 	inst := &maintenanceInstaller{
 		rebootCh: rebootCh,
-		doLocateUKI: func() (string, error) {
+		doLocateUKI: func(string) (string, error) {
 			return "/fake/uki.efi", nil
 		},
 		doInstall: func(_ context.Context, o install.Options, _ install.Runner, _ string, _ func(string, string) error, _ install.Deps) error {
@@ -131,7 +131,7 @@ func TestMaintenanceInstaller_InstallError(t *testing.T) {
 	rebootCh := make(chan struct{}, 1)
 	inst := &maintenanceInstaller{
 		rebootCh: rebootCh,
-		doLocateUKI: func() (string, error) {
+		doLocateUKI: func(string) (string, error) {
 			return "/fake/uki.efi", nil
 		},
 		doInstall: func(_ context.Context, _ install.Options, _ install.Runner, _ string, _ func(string, string) error, _ install.Deps) error {
@@ -159,7 +159,7 @@ func TestMaintenanceInstaller_InstallError(t *testing.T) {
 func TestMaintenanceInstaller_LocateUKIError(t *testing.T) {
 	inst := &maintenanceInstaller{
 		rebootCh: make(chan struct{}, 1),
-		doLocateUKI: func() (string, error) {
+		doLocateUKI: func(string) (string, error) {
 			return "", errors.New("no EFI partition found")
 		},
 	}
@@ -169,5 +169,28 @@ func TestMaintenanceInstaller_LocateUKIError(t *testing.T) {
 	}
 	if status.Code(err) != codes.Internal {
 		t.Fatalf("code = %v, want Internal", status.Code(err))
+	}
+}
+
+// TestMaintenanceInstaller_LocateUKISkipsTarget verifies that the boot-UKI
+// lookup is told the install target, so it never reads the UKI from the disk
+// it is about to repartition.
+func TestMaintenanceInstaller_LocateUKISkipsTarget(t *testing.T) {
+	var gotTarget string
+	inst := &maintenanceInstaller{
+		rebootCh: make(chan struct{}, 1),
+		doLocateUKI: func(target string) (string, error) {
+			gotTarget = target
+			return "/fake/uki.efi", nil
+		},
+		doInstall: func(_ context.Context, _ install.Options, _ install.Runner, _ string, _ func(string, string) error, _ install.Deps) error {
+			return nil
+		},
+	}
+	if _, err := inst.Install(context.Background(), validMachineConfig()); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if gotTarget != "/dev/sda" {
+		t.Fatalf("locate boot UKI got target %q, want /dev/sda", gotTarget)
 	}
 }

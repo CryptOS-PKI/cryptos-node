@@ -1,9 +1,11 @@
 // Package buildinfo carries the build identity of every CryptOS binary: the
 // version, the commit it was built from, and when.
 //
-// The values are stamped at build time with -ldflags -X by
-// scripts/buildinfo.sh, which `task build` uses for every binary in this
-// checkout, so they report the same identity:
+// The version and commit are github.com/Bugs5382/go-buildinfo's, stamped
+// there with -ldflags -X; the build date, which go-buildinfo doesn't carry,
+// is stamped here. scripts/buildinfo.sh prints all three flags, and
+// `task build` uses it for every binary in this checkout, so they report the
+// same identity:
 //
 //	go build -ldflags "$(scripts/buildinfo.sh)" ./cmd/cryptosctl
 //
@@ -28,22 +30,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import "runtime/debug"
+import (
+	"runtime/debug"
 
-const (
-	devVersion = "dev"
-	unknown    = "unknown"
+	gobuildinfo "github.com/Bugs5382/go-buildinfo"
 )
 
-// Stamped at build time via -ldflags -X; see the package comment.
-var (
-	// Version is `git describe --tags --always --dirty` of the build tree.
-	Version = devVersion
-	// Commit is the full commit hash, suffixed -dirty for a modified tree.
-	Commit = ""
-	// BuildDate is the RFC 3339 UTC time of the commit the build came from.
-	BuildDate = ""
-)
+const unknown = "unknown"
+
+// BuildDate is the RFC 3339 UTC time of the commit the build came from,
+// stamped at build time via -ldflags -X; see the package comment.
+var BuildDate = ""
 
 // Info is a resolved build identity.
 type Info struct {
@@ -58,51 +55,38 @@ func Get() Info {
 	if !ok {
 		bi = nil
 	}
-	return resolve(Version, Commit, BuildDate, bi)
+	return resolve(gobuildinfo.Get(), gobuildinfo.Commit != "", BuildDate, bi)
 }
 
-// resolve prefers the stamped values and fills anything left unstamped from
-// the toolchain's VCS metadata, then from "unknown".
-func resolve(version, commit, date string, bi *debug.BuildInfo) Info {
-	if commit == "" || date == "" {
-		rev, when, dirty := vcs(bi)
-		if commit == "" && rev != "" {
-			commit = rev
-			if dirty {
-				commit += "-dirty"
-			}
-		}
-		if date == "" {
-			date = when
-		}
+// resolve combines go-buildinfo's version and commit with the build date.
+// go-buildinfo already falls back to the VCS revision and then "unknown" for
+// an unstamped commit; a revision taken from a modified tree is suffixed
+// -dirty here, as a stamped commit from a modified tree is. An unstamped date
+// falls back to the VCS commit time, then "unknown".
+func resolve(g gobuildinfo.Info, commitStamped bool, date string, bi *debug.BuildInfo) Info {
+	commit := g.Commit
+	if !commitStamped && g.Modified && commit != unknown {
+		commit += "-dirty"
 	}
-	if version == "" {
-		version = devVersion
-	}
-	if commit == "" {
-		commit = unknown
+	if date == "" {
+		date = vcsTime(bi)
 	}
 	if date == "" {
 		date = unknown
 	}
-	return Info{Version: version, Commit: commit, BuildDate: date}
+	return Info{Version: g.Version, Commit: commit, BuildDate: date}
 }
 
-// vcs extracts the revision, commit time, and modified flag the Go toolchain
-// records for a build made inside a VCS checkout.
-func vcs(bi *debug.BuildInfo) (rev, when string, dirty bool) {
+// vcsTime returns the commit time the Go toolchain records for a build made
+// inside a VCS checkout.
+func vcsTime(bi *debug.BuildInfo) string {
 	if bi == nil {
-		return "", "", false
+		return ""
 	}
 	for _, s := range bi.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			rev = s.Value
-		case "vcs.time":
-			when = s.Value
-		case "vcs.modified":
-			dirty = s.Value == "true"
+		if s.Key == "vcs.time" {
+			return s.Value
 		}
 	}
-	return rev, when, dirty
+	return ""
 }

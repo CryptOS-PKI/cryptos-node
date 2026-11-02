@@ -28,6 +28,7 @@ import (
 
 	"github.com/CryptOS-PKI/cryptos-node/internal/ca"
 	"github.com/CryptOS-PKI/cryptos-node/internal/node"
+	"github.com/CryptOS-PKI/cryptos-node/internal/revocation"
 )
 
 // defaultOCSPResponderValidity is the lifetime of a minted delegated OCSP
@@ -191,4 +192,76 @@ func (r *ocspResponder) mint(ctx context.Context) (*x509.Certificate, crypto.Sig
 		return nil, nil, fmt.Errorf("init: persist OCSP responder: %w", err)
 	}
 	return cert, key, nil
+}
+
+// previousResponder is the responder a CA re-key retired, with the old CA
+// certificate it chains to.
+type previousResponder struct {
+	cert   *x509.Certificate
+	key    crypto.Signer
+	issuer *x509.Certificate
+}
+
+// loadPrevious returns the unexpired contents of the previous-responder slot,
+// and the raw certificate for dropping it. ok is false when the slot is empty,
+// unusable or expired. It never touches the CA key: that key is gone.
+func (r *ocspResponder) loadPrevious(ctx context.Context, now time.Time) (*previousResponder, []byte, bool) {
+	certDER, keyBlob, caDER, ok, err := r.store.PreviousOCSPResponder(ctx)
+	if err != nil {
+		log.Printf("OCSP responder: read previous-responder slot: %v", err)
+		return nil, nil, false
+	}
+	if !ok {
+		return nil, nil, false
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		log.Printf("OCSP responder: parse previous responder: %v", err)
+		return nil, certDER, false
+	}
+	if now.After(cert.NotAfter) {
+		return nil, certDER, false
+	}
+	issuer, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		log.Printf("OCSP responder: parse previous CA certificate: %v", err)
+		return nil, certDER, false
+	}
+	key, err := parseNodeKey(keyBlob)
+	if err != nil {
+		log.Printf("OCSP responder: parse previous responder key: %v", err)
+		return nil, certDER, false
+	}
+	return &previousResponder{cert: cert, key: key, issuer: issuer}, certDER, true
+}
+
+// previousFor returns the retired responder when reqDER names the CA key it
+// chains to. A malformed request, or one naming any other issuer, reports
+// ok=false and takes the current-responder path.
+func (r *ocspResponder) previousFor(ctx context.Context, reqDER []byte, now time.Time) (*previousResponder, bool) {
+	prev, _, ok := r.loadPrevious(ctx, now)
+	if !ok {
+		return nil, false
+	}
+	named, err := revocation.RequestNamesIssuer(reqDER, prev.issuer)
+	if err != nil {
+		log.Printf("OCSP responder: match request to the previous CA: %v", err)
+		return nil, false
+	}
+	return prev, named
+}
+
+// dropExpiredPrevious empties the previous-responder slot once its responder
+// has expired or can no longer be read, so the retired key does not outlive
+// its use.
+func (r *ocspResponder) dropExpiredPrevious(ctx context.Context, now time.Time) error {
+	_, certDER, ok := r.loadPrevious(ctx, now)
+	if ok || certDER == nil {
+		return nil
+	}
+	if err := r.store.DropPreviousOCSPResponder(ctx, certDER); err != nil {
+		return fmt.Errorf("init: drop previous OCSP responder: %w", err)
+	}
+	log.Printf("OCSP responder: dropped the responder kept for the previous CA key")
+	return nil
 }

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Print the -ldflags -X arguments that stamp a binary's build identity into
-# internal/buildinfo (version, commit, build date). `task build` uses it for
+# Print the -ldflags -X arguments that stamp a binary's build identity: the
+# version and commit into github.com/Bugs5382/go-buildinfo, and the build date
+# into internal/buildinfo, which go-buildinfo doesn't carry. `task build` uses it for
 # every binary built from this checkout (init, cryptosctl, cryptos-install), so
 # they report the same identity (`cryptosctl status` / `cryptosctl version`).
 # cryptos-appliance carries its own copy for the image it builds.
@@ -20,15 +21,16 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 pkg="github.com/CryptOS-PKI/cryptos-node/internal/buildinfo"
+gobi="github.com/Bugs5382/go-buildinfo"
 
 version="${CRYPTOS_VERSION:-$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)}"
-flags="-X $pkg.Version=$version"
+flags="-X $gobi.Version=$version"
 
 if commit="$(git -C "$root" rev-parse HEAD 2>/dev/null)"; then
   if ! git -C "$root" diff --quiet HEAD -- 2>/dev/null; then
     commit="$commit-dirty"
   fi
-  flags="$flags -X $pkg.Commit=$commit"
+  flags="$flags -X $gobi.Commit=$commit"
 fi
 
 epoch="${SOURCE_DATE_EPOCH:-$(git -C "$root" log -1 --format=%ct 2>/dev/null || true)}"

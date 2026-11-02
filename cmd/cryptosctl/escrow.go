@@ -82,7 +82,7 @@ func newExportKeyCmd(opts *globalOpts) *cobra.Command {
 			if err := os.WriteFile(outFile, resp.GetEnvelope(), 0o600); err != nil {
 				return fmt.Errorf("write backup: %w", err)
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote encrypted CA key backup to %s (%d bytes, mode 0600)\n", outFile, len(resp.GetEnvelope()))
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "wrote encrypted CA key backup to %s (%d bytes)\n", outFile, len(resp.GetEnvelope()))
 			return err
 		},
 	}
