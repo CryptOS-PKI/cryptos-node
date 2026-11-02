@@ -19,11 +19,13 @@ limitations under the License.
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -566,7 +568,9 @@ func (s *Store) RotationKeyBlobs(ctx context.Context) (private, public []byte, o
 // transaction is guarded on the rotation key-blob existing so a commit with no
 // staged rotation does not apply and returns ErrNoRotation, which makes commit
 // re-entry after a crash idempotent. The old key is discarded; certificates it
-// already signed keep validating until they expire. Chain verification (that
+// already signed keep validating until they expire. The delegated OCSP
+// responder under the old key moves to the previous-responder slot in the same
+// transaction, so OCSP keeps working for those certificates. Chain verification (that
 // the chain roots to the pinned parent anchor and that the leaf carries the
 // staged rotation key) is the caller's responsibility (the enroller verifies
 // before calling this).
@@ -597,17 +601,24 @@ func (s *Store) CommitRotation(ctx context.Context, chainDER [][]byte) error {
 		return ErrNoRotation
 	}
 
+	retire, err := s.retireResponderOps(ctx)
+	if err != nil {
+		return fmt.Errorf("node: CommitRotation: %w", err)
+	}
+
+	ops := []clientv3.Op{
+		clientv3.OpPut(etcd.KeyRootKeyBlob, string(keyPriv)),
+		clientv3.OpPut(etcd.KeyRootKeyPublic, string(keyPub)),
+		clientv3.OpPut(etcd.KeyIdentityChain, string(chainJSON)),
+		clientv3.OpPut(etcd.KeyRootCert, string(leafDER)),
+		clientv3.OpDelete(etcd.KeyRotationCSR),
+		clientv3.OpDelete(etcd.KeyRotationKeyBlob),
+		clientv3.OpDelete(etcd.KeyRotationKeyPublic),
+	}
+	ops = append(ops, retire...)
 	resp, err := s.cli.Txn(ctx).
 		If(clientv3.Compare(clientv3.CreateRevision(etcd.KeyRotationKeyBlob), "!=", 0)).
-		Then(
-			clientv3.OpPut(etcd.KeyRootKeyBlob, string(keyPriv)),
-			clientv3.OpPut(etcd.KeyRootKeyPublic, string(keyPub)),
-			clientv3.OpPut(etcd.KeyIdentityChain, string(chainJSON)),
-			clientv3.OpPut(etcd.KeyRootCert, string(leafDER)),
-			clientv3.OpDelete(etcd.KeyRotationCSR),
-			clientv3.OpDelete(etcd.KeyRotationKeyBlob),
-			clientv3.OpDelete(etcd.KeyRotationKeyPublic),
-		).
+		Then(ops...).
 		Commit()
 	if err != nil {
 		return fmt.Errorf("node: CommitRotation: txn: %w", err)
@@ -616,6 +627,53 @@ func (s *Store) CommitRotation(ctx context.Context, chainDER [][]byte) error {
 		return ErrNoRotation
 	}
 	return nil
+}
+
+// retireResponderOps returns the operations that move the stored OCSP responder
+// and the CA certificate it chains to into the previous-responder slot. It
+// returns none when there is nothing valid to keep: no responder has been
+// minted, or the stored one is not signed by the CA being retired, which
+// happens when two re-keys land before the responder is re-minted. Pairing that
+// responder with this CA certificate would produce responses no client accepts,
+// so the slot keeps what it has, a pair that still matches.
+func (s *Store) retireResponderOps(ctx context.Context) ([]clientv3.Op, error) {
+	certDER, keyBlob, _, ok, err := s.OCSPResponder(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read OCSP responder: %w", err)
+	}
+	if !ok {
+		log.Printf("node: re-key: no OCSP responder stored, nothing to keep for the retiring CA key")
+		return nil, nil
+	}
+	caKV, ok, err := s.getKV(ctx, etcd.KeyRootCert)
+	if err != nil {
+		return nil, fmt.Errorf("read CA certificate: %w", err)
+	}
+	if !ok {
+		return nil, nil
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		log.Printf("node: re-key: stored OCSP responder does not parse, not keeping it: %v", err)
+		return nil, nil
+	}
+	caCert, err := x509.ParseCertificate(caKV.Value)
+	if err != nil {
+		log.Printf("node: re-key: CA certificate does not parse, not keeping the OCSP responder: %v", err)
+		return nil, nil
+	}
+	if err := cert.CheckSignatureFrom(caCert); err != nil {
+		log.Printf("node: re-key: OCSP responder (serial %s) is not signed by the retiring CA certificate, not keeping it: %v",
+			cert.SerialNumber.Text(16), err)
+		return nil, nil
+	}
+	log.Printf("node: re-key: keeping OCSP responder (serial %s) for the retiring CA key until %s",
+		cert.SerialNumber.Text(16), cert.NotAfter.UTC().Format(time.RFC3339))
+	return []clientv3.Op{
+		clientv3.OpPut(etcd.KeyOCSPPreviousResponderCert, string(certDER)),
+		clientv3.OpPut(etcd.KeyOCSPPreviousResponderKeyBlob, string(keyBlob)),
+		clientv3.OpPut(etcd.KeyOCSPPreviousResponderCACert, string(caKV.Value)),
+	}, nil
 }
 
 // CommitRenewal atomically replaces an established subordinate's CA
@@ -786,6 +844,48 @@ func (s *Store) OCSPResponder(ctx context.Context) (certDER, keyBlob, keyPublic 
 		append([]byte(nil), blobKV.Value...),
 		append([]byte(nil), pubKV.Value...),
 		true, nil
+}
+
+// PreviousOCSPResponder returns the responder retired by the last CA re-key:
+// its certificate (DER), its private key blob, and the CA certificate (DER) it
+// chains to. ok is false when the slot is empty.
+func (s *Store) PreviousOCSPResponder(ctx context.Context) (certDER, keyBlob, caCertDER []byte, ok bool, err error) {
+	certKV, okCert, err := s.getKV(ctx, etcd.KeyOCSPPreviousResponderCert)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	blobKV, okBlob, err := s.getKV(ctx, etcd.KeyOCSPPreviousResponderKeyBlob)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	caKV, okCA, err := s.getKV(ctx, etcd.KeyOCSPPreviousResponderCACert)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	if !okCert || !okBlob || !okCA {
+		return nil, nil, nil, false, nil
+	}
+	return append([]byte(nil), certKV.Value...),
+		append([]byte(nil), blobKV.Value...),
+		append([]byte(nil), caKV.Value...),
+		true, nil
+}
+
+// DropPreviousOCSPResponder empties the previous-responder slot if it still
+// holds certDER, so a re-key that filled the slot in the meantime is not undone.
+func (s *Store) DropPreviousOCSPResponder(ctx context.Context, certDER []byte) error {
+	_, err := s.cli.Txn(ctx).
+		If(clientv3.Compare(clientv3.Value(etcd.KeyOCSPPreviousResponderCert), "=", string(certDER))).
+		Then(
+			clientv3.OpDelete(etcd.KeyOCSPPreviousResponderCert),
+			clientv3.OpDelete(etcd.KeyOCSPPreviousResponderKeyBlob),
+			clientv3.OpDelete(etcd.KeyOCSPPreviousResponderCACert),
+		).
+		Commit()
+	if err != nil {
+		return fmt.Errorf("node: DropPreviousOCSPResponder: txn: %w", err)
+	}
+	return nil
 }
 
 // getString returns the value at key as a string and whether it exists.

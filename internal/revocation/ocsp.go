@@ -17,9 +17,12 @@ limitations under the License.
 */
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/asn1"
 	"fmt"
 	"time"
 
@@ -63,8 +66,11 @@ func (r *OCSPResponder) Respond(ctx context.Context, reqDER []byte, issuer, resp
 
 	tmpl := ocsp.Response{
 		SerialNumber: req.SerialNumber,
-		ThisUpdate:   now,
-		NextUpdate:   now.Add(ocspNextUpdate),
+		// RFC 6960 section 4.2.1: the response names the requested CertID, so it
+		// is hashed with the algorithm the client chose.
+		IssuerHash: req.HashAlgorithm,
+		ThisUpdate: now,
+		NextUpdate: now.Add(ocspNextUpdate),
 		// Embed the delegated responder certificate so a relying party can
 		// validate that the response signer (responderKey) chains to issuer via
 		// a cert carrying id-kp-OCSPSigning, rather than expecting the CA key to
@@ -91,4 +97,28 @@ func (r *OCSPResponder) Respond(ctx context.Context, reqDER []byte, issuer, resp
 		return nil, fmt.Errorf("revocation: Respond: create response: %w", err)
 	}
 	return respDER, nil
+}
+
+// RequestNamesIssuer reports whether the CertID in reqDER names issuer, which
+// RFC 6960 section 4.1.1 defines as both the hash of the issuer's DN and the
+// hash of its public key (the BIT STRING value, without tag and length). It
+// fails on a malformed request.
+func RequestNamesIssuer(reqDER []byte, issuer *x509.Certificate) (bool, error) {
+	req, err := ocsp.ParseRequest(reqDER)
+	if err != nil {
+		return false, fmt.Errorf("revocation: RequestNamesIssuer: parse request: %w", err)
+	}
+	var spki struct {
+		Algorithm pkix.AlgorithmIdentifier
+		PublicKey asn1.BitString
+	}
+	if _, err := asn1.Unmarshal(issuer.RawSubjectPublicKeyInfo, &spki); err != nil {
+		return false, fmt.Errorf("revocation: RequestNamesIssuer: parse issuer public key: %w", err)
+	}
+	nameHash := req.HashAlgorithm.New()
+	nameHash.Write(issuer.RawSubject)
+	keyHash := req.HashAlgorithm.New()
+	keyHash.Write(spki.PublicKey.RightAlign())
+	return bytes.Equal(nameHash.Sum(nil), req.IssuerNameHash) &&
+		bytes.Equal(keyHash.Sum(nil), req.IssuerKeyHash), nil
 }
