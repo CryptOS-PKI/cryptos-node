@@ -175,6 +175,12 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	bi := buildinfo.Get()
 	log.Printf("cryptos %s (commit %s, built %s)", bi.Version, bi.Commit, bi.BuildDate)
 
+	// The QEMU guest agent, on VMs that have its channel. Its context ends
+	// last (deferred first), so it answers through the whole teardown.
+	agentCtx, stopAgent := context.WithCancel(ctx)
+	defer stopAgent()
+	startGuestAgent(agentCtx, shutdown)
+
 	// Branded boot: open the console and render the mark and version once. Each bring-up
 	// step below marks its status. Best-effort: if the console cannot be opened,
 	// step is a no-op and boot proceeds unchanged.
@@ -208,7 +214,7 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	// no vTPM still enters maintenance cleanly.
 	paths := DerivePaths()
 	if stateDeviceMissing(StateLabel) {
-		return runMaintenance(ctx)
+		return runMaintenance(ctx, shutdown)
 	}
 	begin("state volume")
 
@@ -279,7 +285,7 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 			// which persists the applied config to the mounted state and reboots
 			// into the ceremony, rather than the bare-disk installer.
 			log.Printf("REPROVISION: %v", err)
-			return runReprovisionMaintenance(ctx, cfgStore, mode)
+			return runReprovisionMaintenance(ctx, cfgStore, mode, shutdown)
 		}
 		return err
 	}

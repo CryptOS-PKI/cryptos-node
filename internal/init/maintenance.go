@@ -77,9 +77,9 @@ func startConsoleSocket(ctx context.Context) func() {
 // 169.254.0.0/16 address instead. We only serve the management API, on every
 // address (0.0.0.0), with a self-signed maintenance cert and NO client
 // verification (Talos --insecure). No TPM, LUKS, etcd, or ceremony. Parks until
-// a shutdown signal or a successful install (which triggers reboot), then
-// returns so PID 1 reboots.
-func runMaintenance(ctx context.Context) error {
+// a shutdown signal, a successful install (which triggers reboot) or a request
+// from the QEMU guest agent, then returns so PID 1 reboots or powers off.
+func runMaintenance(ctx context.Context, shutdown *shutdownRequests) error {
 	if err := netlink.BringUpLoopback(); err != nil {
 		return err
 	}
@@ -128,6 +128,9 @@ func runMaintenance(ctx context.Context) error {
 		log.Printf("shutdown signal received")
 	case <-rebootCh:
 		log.Printf("install complete; rebooting")
+	case a := <-shutdown.Requested():
+		shutdown.take(a)
+		log.Printf("shutdown: %s requested; stopping", a)
 	}
 	return nil
 }
@@ -142,9 +145,10 @@ func runMaintenance(ctx context.Context) error {
 // the config to the mounted state and reboots into the ceremony.
 //
 // The listener setup mirrors runMaintenance: self-signed cert, client auth OFF
-// (Talos --insecure), no-op auditor. It parks until a shutdown signal or a
-// successful re-provision (which triggers reboot), then returns so PID 1 reboots.
-func runReprovisionMaintenance(ctx context.Context, cfgStore *config.FileStore, sealedMode string) error {
+// (Talos --insecure), no-op auditor. It parks until a shutdown signal, a
+// successful re-provision (which triggers reboot) or a request from the QEMU
+// guest agent, then returns so PID 1 reboots or powers off.
+func runReprovisionMaintenance(ctx context.Context, cfgStore *config.FileStore, sealedMode string, shutdown *shutdownRequests) error {
 	if err := netlink.BringUpLoopback(); err != nil {
 		return err
 	}
@@ -193,6 +197,9 @@ func runReprovisionMaintenance(ctx context.Context, cfgStore *config.FileStore, 
 		log.Printf("shutdown signal received")
 	case <-rebootCh:
 		log.Printf("re-provision complete; rebooting")
+	case a := <-shutdown.Requested():
+		shutdown.take(a)
+		log.Printf("shutdown: %s requested; stopping", a)
 	}
 	return nil
 }
