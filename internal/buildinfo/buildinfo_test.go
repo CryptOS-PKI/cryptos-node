@@ -19,18 +19,17 @@ limitations under the License.
 import (
 	"runtime/debug"
 	"testing"
+
+	gobuildinfo "github.com/Bugs5382/go-buildinfo"
 )
 
-func vcsInfo(rev, when, modified string) *debug.BuildInfo {
-	return &debug.BuildInfo{Settings: []debug.BuildSetting{
-		{Key: "vcs.revision", Value: rev},
-		{Key: "vcs.time", Value: when},
-		{Key: "vcs.modified", Value: modified},
-	}}
+func vcsInfo(when string) *debug.BuildInfo {
+	return &debug.BuildInfo{Settings: []debug.BuildSetting{{Key: "vcs.time", Value: when}}}
 }
 
 func TestResolveStampedWins(t *testing.T) {
-	got := resolve("v1.2.3", "abc123", "2026-09-25T00:00:00Z", vcsInfo("fff", "2020-01-01T00:00:00Z", "true"))
+	g := gobuildinfo.Info{Version: "v1.2.3", Commit: "abc123", Modified: true}
+	got := resolve(g, true, "2026-09-25T00:00:00Z", vcsInfo("2020-01-01T00:00:00Z"))
 	want := Info{Version: "v1.2.3", Commit: "abc123", BuildDate: "2026-09-25T00:00:00Z"}
 	if got != want {
 		t.Errorf("resolve = %+v, want %+v", got, want)
@@ -38,25 +37,27 @@ func TestResolveStampedWins(t *testing.T) {
 }
 
 func TestResolveFallsBackToVCS(t *testing.T) {
-	got := resolve(devVersion, "", "", vcsInfo("0123456789abcdef", "2026-09-24T12:00:00Z", "true"))
-	want := Info{Version: devVersion, Commit: "0123456789abcdef-dirty", BuildDate: "2026-09-24T12:00:00Z"}
+	g := gobuildinfo.Info{Version: "dev", Commit: "0123456789abcdef", Modified: true}
+	got := resolve(g, false, "", vcsInfo("2026-09-24T12:00:00Z"))
+	want := Info{Version: "dev", Commit: "0123456789abcdef-dirty", BuildDate: "2026-09-24T12:00:00Z"}
 	if got != want {
 		t.Errorf("resolve = %+v, want %+v", got, want)
 	}
 }
 
 func TestResolveNoMetadata(t *testing.T) {
-	got := resolve(devVersion, "", "", nil)
-	want := Info{Version: devVersion, Commit: unknown, BuildDate: unknown}
+	g := gobuildinfo.Info{Version: "dev", Commit: unknown}
+	got := resolve(g, false, "", nil)
+	want := Info{Version: "dev", Commit: unknown, BuildDate: unknown}
 	if got != want {
 		t.Errorf("resolve = %+v, want %+v", got, want)
 	}
 }
 
-func TestGetUsesPackageVars(t *testing.T) {
-	old := [3]string{Version, Commit, BuildDate}
-	t.Cleanup(func() { Version, Commit, BuildDate = old[0], old[1], old[2] })
-	Version, Commit, BuildDate = "v9.9.9", "deadbeef", "2026-01-01T00:00:00Z"
+func TestGetUsesStampedVars(t *testing.T) {
+	old := [3]string{gobuildinfo.Version, gobuildinfo.Commit, BuildDate}
+	t.Cleanup(func() { gobuildinfo.Version, gobuildinfo.Commit, BuildDate = old[0], old[1], old[2] })
+	gobuildinfo.Version, gobuildinfo.Commit, BuildDate = "v9.9.9", "deadbeef", "2026-01-01T00:00:00Z"
 	if got := Get(); got.Version != "v9.9.9" || got.Commit != "deadbeef" || got.BuildDate != "2026-01-01T00:00:00Z" {
 		t.Errorf("Get = %+v", got)
 	}

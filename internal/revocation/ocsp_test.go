@@ -24,6 +24,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"math/big"
 	"testing"
 	"time"
 
@@ -139,5 +140,67 @@ func TestOCSPGoodRevokedUnknown(t *testing.T) {
 	}
 	if parsed.Status != ocsp.Unknown {
 		t.Fatalf("unknown serial status=%d want %d", parsed.Status, ocsp.Unknown)
+	}
+}
+
+func TestRequestNamesIssuer(t *testing.T) {
+	newCA := func(cn string, key crypto.Signer) *x509.Certificate {
+		t.Helper()
+		tmpl := &x509.Certificate{
+			SerialNumber:          big.NewInt(1),
+			Subject:               pkix.Name{CommonName: cn},
+			NotBefore:             time.Now().Add(-time.Hour),
+			NotAfter:              time.Now().Add(time.Hour),
+			IsCA:                  true,
+			BasicConstraintsValid: true,
+		}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
+		if err != nil {
+			t.Fatalf("CreateCertificate: %v", err)
+		}
+		cert, err := x509.ParseCertificate(der)
+		if err != nil {
+			t.Fatalf("ParseCertificate: %v", err)
+		}
+		return cert
+	}
+	newKey := func() crypto.Signer {
+		t.Helper()
+		key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+		if err != nil {
+			t.Fatalf("GenerateKey: %v", err)
+		}
+		return key
+	}
+	key := newKey()
+	named := newCA("Issuing CA", key)
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(7)}
+
+	for _, hash := range []crypto.Hash{crypto.SHA1, crypto.SHA256, crypto.SHA384, crypto.SHA512} {
+		reqDER, err := ocsp.CreateRequest(leaf, named, &ocsp.RequestOptions{Hash: hash})
+		if err != nil {
+			t.Fatalf("ocsp.CreateRequest %v: %v", hash, err)
+		}
+		for _, tc := range []struct {
+			name   string
+			issuer *x509.Certificate
+			want   bool
+		}{
+			{"same name and key", named, true},
+			{"same name, other key", newCA("Issuing CA", newKey()), false},
+			{"other name, same key", newCA("Other CA", key), false},
+		} {
+			got, err := RequestNamesIssuer(reqDER, tc.issuer)
+			if err != nil {
+				t.Fatalf("%v %s: %v", hash, tc.name, err)
+			}
+			if got != tc.want {
+				t.Errorf("%v %s = %v, want %v", hash, tc.name, got, tc.want)
+			}
+		}
+	}
+
+	if _, err := RequestNamesIssuer([]byte("not a request"), named); err == nil {
+		t.Error("a malformed request did not fail")
 	}
 }

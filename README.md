@@ -57,19 +57,20 @@ testdata/configs/   # sample machine configs
 
 ## 🛠️ Build + run (dev loop)
 
-Requires Go 1.26.8+ (the `go` line in `go.mod`; an older local Go downloads that toolchain on first use), [`go-task`](https://taskfile.dev), `golangci-lint`, `golic`, [`buf`](https://buf.build) (proto lint and codegen), and (for the TPM-held RSA CA test) `swtpm`. `task test` runs that test against `swtpm` when it is installed, because the in-process TPM simulator implements RSA-2048 only; without `swtpm` it skips locally and fails in CI.
+Requires Go 1.26.10+ (the `go` line in `go.mod`; an older local Go downloads that toolchain on first use), [`go-task`](https://taskfile.dev), `golangci-lint`, `golic`, [`buf`](https://buf.build) (proto lint and codegen), and (for the TPM-held RSA CA test) `swtpm`. `task test` runs that test against `swtpm` when it is installed, because the in-process TPM simulator implements RSA-2048 only; without `swtpm` it skips locally and fails in CI.
 
 ```bash
 task ci          # fmt + proto lint + generated-code check + lint + vet + test + build
 task generate    # regenerate gen/go from proto/ with the pinned plugins (task tools)
 task build       # produces bin/init, bin/cryptosctl and bin/cryptos-install, stamped with the build identity
+task build:windows # cross-builds bin/cryptosctl-windows-amd64.exe and -arm64.exe
 task license     # re-inject Apache 2.0 headers via golic
 task e2e:kind    # Linux + docker: cert-manager in kind gets a certificate over ACME
 ```
 
 `task e2e:kind` builds a Root and an ACME-serving Intermediate in-process (software keys, no TPM), stands up a kind cluster with cert-manager and Contour, and checks that a `Certificate` goes Ready with a chain to the root and renews to a new serial. It downloads pinned, checksum-checked kind, kubectl and manifests ([`test/kind/versions.env`](test/kind/versions.env)), needs sudo once to add a `/etc/hosts` line for the test name, and skips when docker isn't available.
 
-`bin/cryptosctl version` prints the version, commit, and build date the binary was built from (`git describe --tags --always --dirty`; see [`scripts/buildinfo.sh`](scripts/buildinfo.sh)); pass `--endpoint` to also show the node's version.
+`bin/cryptosctl version` prints the version, commit, and build date the binary was built from (`git describe --tags --always --dirty`, stamped through [go-buildinfo](https://github.com/Bugs5382/go-buildinfo); see [`scripts/buildinfo.sh`](scripts/buildinfo.sh)); pass `--endpoint` to also show the node's version.
 
 ### The boot image
 
@@ -81,7 +82,7 @@ The release assets are unsigned and carry no upgrade anchor. `cryptosctl image s
 
 GitHub Actions:
 
-- **`ci-go`** ([`ci-go.yml`](.github/workflows/ci-go.yml)) — `task ci` (format, proto lint, generated-code check, lint, vet, test, build) on every pull request + push to `main`, on a GitHub-hosted Linux runner, with `swtpm` installed for the TPM-held RSA CA test. Draft pull requests are skipped; CI runs when the PR is marked ready.
+- **`ci-go`** ([`ci-go.yml`](.github/workflows/ci-go.yml)) — `task ci` (format, proto lint, generated-code check, lint, vet, test, build, Windows cross-build of `cryptosctl`) on every pull request + push to `main`, on a GitHub-hosted Linux runner, with `swtpm` installed for the TPM-held RSA CA test. Draft pull requests are skipped; CI runs when the PR is marked ready.
 
 After a stacked pull request is retargeted onto `main`, CI starts on its next push, or when it is toggled to draft and back to ready.
 
@@ -123,7 +124,7 @@ Code signatures stay verifiable after the signing certificate expires when they 
 Most `config apply` changes report `requires_reboot=true`. Restart the node through its orderly shutdown rather than a hypervisor hard reset:
 
 > [!NOTE]
-> `cryptosctl` runs on Linux and macOS today. A Windows build is coming.
+> `cryptosctl` runs on Linux, macOS and Windows (amd64 and arm64).
 
 ```sh
 cryptosctl --endpoint pki-root.example:443 reboot --confirm "Example Root CA G1"

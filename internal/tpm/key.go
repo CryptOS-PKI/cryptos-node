@@ -26,14 +26,16 @@ import (
 
 	"github.com/google/go-tpm/tpm2"
 	"github.com/google/go-tpm/tpm2/transport"
+
+	"github.com/CryptOS-PKI/cryptos-node/internal/keyalg"
 )
 
 // KeyAlgorithm selects the algorithm and parameters for a created signing key.
-type KeyAlgorithm int
+type KeyAlgorithm = keyalg.Algorithm
 
 const (
 	// AlgorithmECDSAP384 pairs ECDSA on NIST P-384 with SHA-384.
-	AlgorithmECDSAP384 KeyAlgorithm = iota + 1
+	AlgorithmECDSAP384 = keyalg.ECDSAP384
 
 	// AlgorithmRSA2048, AlgorithmRSA3072 and AlgorithmRSA4096 are RSA CA keys
 	// at the named modulus size. RSA-3072 and RSA-4096 can be created inside
@@ -41,9 +43,9 @@ const (
 	// fails with ErrKeyAlgorithmUnsupported rather than creating anything
 	// else. RSA-2048 is below MinRSAKeyBits and is refused here; it remains
 	// only for the software key backend.
-	AlgorithmRSA2048
-	AlgorithmRSA3072
-	AlgorithmRSA4096
+	AlgorithmRSA2048 = keyalg.RSA2048
+	AlgorithmRSA3072 = keyalg.RSA3072
+	AlgorithmRSA4096 = keyalg.RSA4096
 )
 
 // MinRSAKeyBits is the smallest RSA key CreateKey will make in the TPM. It
