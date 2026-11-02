@@ -35,7 +35,7 @@ import (
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"github.com/CryptOS-PKI/cryptos-node/internal/bootstrap"
 	"github.com/CryptOS-PKI/cryptos-node/internal/ca"
-	"github.com/CryptOS-PKI/cryptos-node/internal/tpm"
+	"github.com/CryptOS-PKI/cryptos-node/internal/keyalg"
 )
 
 // APIVersion is the only api/kind pair accepted in Phase 1. Validator
@@ -98,14 +98,14 @@ func (a RootKeyAlg) Valid() bool {
 // KeyAlgorithm maps the config vocabulary to the algorithm the key backend
 // generates. Without this the configured value would be validated and then
 // ignored, which is what happened while ECDSA P-384 was the only option.
-func (a RootKeyAlg) KeyAlgorithm() (tpm.KeyAlgorithm, error) {
+func (a RootKeyAlg) KeyAlgorithm() (keyalg.Algorithm, error) {
 	switch a {
 	case RootKeyECDSAP384:
-		return tpm.AlgorithmECDSAP384, nil
+		return keyalg.ECDSAP384, nil
 	case RootKeyRSA3072:
-		return tpm.AlgorithmRSA3072, nil
+		return keyalg.RSA3072, nil
 	case RootKeyRSA4096:
-		return tpm.AlgorithmRSA4096, nil
+		return keyalg.RSA4096, nil
 	default:
 		return 0, fmt.Errorf("config: unsupported key algorithm %q, must be one of %s", a, supportedRootKeyAlgs())
 	}
