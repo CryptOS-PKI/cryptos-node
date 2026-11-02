@@ -93,9 +93,9 @@ func (r nodeResetter) Reset(ctx context.Context, confirmCommonName string) error
 }
 
 // Version is the running build's software version, surfaced via GetStatus.
-// It is stamped at build time into internal/buildinfo (scripts/buildinfo.sh);
-// an unstamped build reports "dev".
-var Version = buildinfo.Version
+// It is stamped at build time into go-buildinfo (scripts/buildinfo.sh) and
+// read through internal/buildinfo; an unstamped build reports "dev".
+var Version = buildinfo.Get().Version
 
 // StateKeyMode selects the state-key/root-key providers. Default "tpm"; a
 // nodeID image sets "nodeid" via -ldflags -X at build time. See
