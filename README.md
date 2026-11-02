@@ -69,7 +69,7 @@ task e2e:kind    # Linux + docker: cert-manager in kind gets a certificate over 
 
 `task e2e:kind` builds a Root and an ACME-serving Intermediate in-process (software keys, no TPM), stands up a kind cluster with cert-manager and Contour, and checks that a `Certificate` goes Ready with a chain to the root and renews to a new serial. It downloads pinned, checksum-checked kind, kubectl and manifests ([`test/kind/versions.env`](test/kind/versions.env)), needs sudo once to add a `/etc/hosts` line for the test name, and skips when docker isn't available.
 
-`bin/cryptosctl version` prints the version, commit, and build date the binary was built from (`git describe --tags --always --dirty`; see [`scripts/buildinfo.sh`](scripts/buildinfo.sh)); pass `--endpoint` to also show the node's version.
+`bin/cryptosctl version` prints the version, commit, and build date the binary was built from (`git describe --tags --always --dirty`, stamped through [go-buildinfo](https://github.com/Bugs5382/go-buildinfo); see [`scripts/buildinfo.sh`](scripts/buildinfo.sh)); pass `--endpoint` to also show the node's version.
 
 ### The boot image
 

@@ -3,6 +3,7 @@ module github.com/CryptOS-PKI/cryptos-node
 go 1.26.10
 
 require (
+	github.com/Bugs5382/go-buildinfo v1.1.0
 	github.com/google/go-tpm v0.9.8
 	github.com/google/go-tpm-tools v0.4.8
 	github.com/spf13/cobra v1.10.2
@@ -14,7 +15,7 @@ require (
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )

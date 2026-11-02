@@ -49,7 +49,7 @@ tasks:
   build:
     desc: Build the init, cryptosctl, and cryptos-install binaries to bin/ (build identity stamped)
     vars:
-      # Version/commit/build date for internal/buildinfo; see scripts/buildinfo.sh.
+      # Version and commit for go-buildinfo, build date for internal/buildinfo; see scripts/buildinfo.sh.
       BUILDINFO:
         sh: bash scripts/buildinfo.sh
     cmds:
