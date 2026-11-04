@@ -4,7 +4,7 @@
 
 Builds a signed Unified Kernel Image (UKI): hardened kernel + Go-based PID 1 + read-only SquashFS rootfs + TPM-unsealed encrypted state partition. A single image boots into a Root, Intermediate, or Issuing CA role based on its machine config. No SSH, no shell, no interactive access. Private keys are TPM-bound and never live on disk in the clear.
 
-The CA runs only on the CryptOS appliance — its own hardware or VM — never on Kubernetes: a CA there can't be TPM-sealed and would be a single point of failure. FleetOS Manager, the optional multi-node console, runs three ways: on Kubernetes (its Helm chart), standalone on a VM, or in a container under Docker or containerd on a bare-metal host with PostgreSQL on the same box, which keeps upgrades simple; see [`cryptos-manager`](https://github.com/CryptOS-PKI/cryptos-manager). Kubernetes is a certificate *consumer* of CryptOS, through cert-manager and ACME, never a place the CA runs.
+The CA runs only on the CryptOS appliance — in v0.1.0 a VMware or Proxmox VE VM; bare metal isn't supported in v0.1.0 — never on Kubernetes: a CA there can't be TPM-sealed and would be a single point of failure. FleetOS Manager, the optional multi-node console, runs three ways: on Kubernetes (its Helm chart), standalone on a VM, or in a container under Docker or containerd on a bare-metal host with PostgreSQL on the same box, which keeps upgrades simple; see [`cryptos-manager`](https://github.com/CryptOS-PKI/cryptos-manager). Kubernetes is a certificate *consumer* of CryptOS, through cert-manager and ACME, never a place the CA runs.
 
 > [!WARNING]
 > 🚧 **Pre-1.0: any release can change fundamentally.** CryptOS is pre-1.0. Until v1.0.0, any release may change configuration, APIs, on-disk and state formats, trust setup, and upgrade paths, sometimes with no migration path. If you run it in production, you accept that risk. Read [each release's upgrade notes](https://github.com/CryptOS-PKI/cryptos-node/releases) before you upgrade.
@@ -21,8 +21,9 @@ The CA runs only on the CryptOS appliance — its own hardware or VM — never o
 ## 📂 Layout
 
 This repo is the PKI engine: the node API, PID 1, the management CLI and the
-bare-metal installer. The signed boot image that runs them — kernel, SquashFS,
-UKI assembly, Secure Boot signing, and the QEMU test suites — is built in
+disk installer (bare metal isn't supported in v0.1.0). The signed boot image
+that runs them — kernel, SquashFS, UKI assembly, Secure Boot signing, and the
+QEMU test suites — is built in
 [`cryptos-appliance`](https://github.com/CryptOS-PKI/cryptos-appliance), which
 pins this repo and builds its binaries by import path.
 
@@ -32,7 +33,7 @@ gen/go/cryptos/node/v1/ # generated Go stubs (package nodev1); `task generate`, 
 cmd/
   init/             # PID 1 binary; becomes /init in the SquashFS
   cryptosctl/       # operator CLI (the only management surface on a standalone node)
-  cryptos-install/  # bare-metal disk installer (GPT + ESP + UKI)
+  cryptos-install/  # disk installer (GPT + ESP + UKI); bare metal not supported in v0.1.0
 internal/
   init/             # supervisor + boot bring-up
     netlink/        # NIC bring-up via rtnetlink
@@ -47,7 +48,7 @@ internal/
     etcd/           # embedded etcd config + schema
   grpc/             # mTLS gRPC server, RPC handlers
   node/             # typed etcd state layer + gRPC Identity/Status/Config providers
-  install/          # bare-metal disk provisioning (partition plan + UKI install)
+  install/          # disk provisioning (partition plan + UKI install); bare metal not supported in v0.1.0
   audit/            # hash-chained audit log
   config/           # machine config parser + validator
   bootstrap/        # bootstrap admin cert loading + first-ceremony rotation
