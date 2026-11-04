@@ -1,6 +1,6 @@
 # cryptos-node 🧠
 
-> 🔐 The OS / engine for [CryptOS-PKI](https://github.com/CryptOS-PKI) — an immutable, API-driven, high-assurance PKI operating system in the Talos Linux tradition.
+> 🔐 The OS / engine for [CryptOS-PKI](https://github.com/CryptOS-PKI), built for high assurance in the Talos Linux tradition. An immutable, API-driven PKI operating system™.
 
 Builds a signed Unified Kernel Image (UKI): hardened kernel + Go-based PID 1 + read-only SquashFS rootfs + TPM-unsealed encrypted state partition. A single image boots into a Root, Intermediate, or Issuing CA role based on its machine config. No SSH, no shell, no interactive access. Private keys are TPM-bound and never live on disk in the clear.
 
