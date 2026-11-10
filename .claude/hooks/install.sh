@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the governance hooks into the current git repository.
-# Copies the Claude Code hooks + shared lib into .claude/hooks/ and the git
+# Copies the shared lib into .claude/hooks/ and the git
 # enforcement hooks into .git/hooks/. Run from anywhere inside the repo.
 set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
@@ -12,7 +12,6 @@ mkdir -p "$DEST"
 # vendored the hooks under .claude/hooks); copying onto itself errors.
 if [ "$SRC" != "$DEST" ]; then
   cp "$SRC/lib.sh" "$SRC/forbidden-text.txt" \
-     "$SRC/block-ai-tells.sh" "$SRC/validate-conventional-commit.sh" "$SRC/check-push-readiness.sh" \
      "$DEST/"
 fi
 chmod +x "$DEST/"*.sh
@@ -23,6 +22,5 @@ for h in pre-commit commit-msg pre-push; do
 done
 
 echo "Installed:"
-echo "  Claude Code hooks -> $ROOT/.claude/hooks/ (wire them in .claude/settings.json)"
+echo "  shared lib        -> $ROOT/.claude/hooks/"
 echo "  git hooks         -> $ROOT/.git/hooks/ (pre-commit, commit-msg, pre-push)"
-echo "Add the PreToolUse entries from .claude/settings.json (see governance settings.template.json)."
