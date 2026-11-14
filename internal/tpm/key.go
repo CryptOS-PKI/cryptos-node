@@ -388,10 +388,14 @@ func parseECDSAPublic(t *tpm2.TPMTPublic) (crypto.PublicKey, KeyAlgorithm, error
 	if err != nil {
 		return nil, 0, fmt.Errorf("tpm: parseECDSAPublic: ECC point: %w", err)
 	}
+	// Kept as a struct literal on purpose (#412): ParseUncompressedPublicKey
+	// wants fixed-width coordinates and re-validates the point, and the
+	// TPM's coordinate buffers are not guaranteed to be full width. Using it
+	// would change which keys are accepted.
 	pub := &ecdsa.PublicKey{
 		Curve: elliptic.P384(),
-		X:     new(big.Int).SetBytes(point.X.Buffer),
-		Y:     new(big.Int).SetBytes(point.Y.Buffer),
+		X:     new(big.Int).SetBytes(point.X.Buffer), //nolint:staticcheck // SA1019: see the comment above
+		Y:     new(big.Int).SetBytes(point.Y.Buffer), //nolint:staticcheck // SA1019: see the comment above
 	}
 	// The TPM generated this point and the curve check it ran is
 	// authoritative; the stdlib IsOnCurve API is deprecated, so we
