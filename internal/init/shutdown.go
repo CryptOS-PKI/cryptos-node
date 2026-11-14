@@ -356,7 +356,10 @@ func (p powerButtonSource) Watch(ctx context.Context, request func(ShutdownActio
 		<-ctx.Done()
 		_ = f.Close()
 	}()
-	if err := readPowerButton(f, request); err != nil && ctx.Err() == nil {
+	// readPowerButton only returns once a read fails, so err is never nil
+	// here; the context check tells a close on shutdown from a real failure.
+	err = readPowerButton(f, request)
+	if ctx.Err() == nil {
 		log.Printf("shutdown: power button %s: %v", p.device, err)
 	}
 }

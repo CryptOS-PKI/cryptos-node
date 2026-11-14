@@ -18,7 +18,6 @@ limitations under the License.
 
 import (
 	"crypto"
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/hmac"
@@ -265,12 +264,11 @@ func (j *JWK) PublicKey() (crypto.PublicKey, error) {
 	switch j.Kty {
 	case "EC":
 		var curve elliptic.Curve
-		var ecdhCurve ecdh.Curve
 		switch j.Crv {
 		case "P-256":
-			curve, ecdhCurve = elliptic.P256(), ecdh.P256()
+			curve = elliptic.P256()
 		case "P-384":
-			curve, ecdhCurve = elliptic.P384(), ecdh.P384()
+			curve = elliptic.P384()
 		default:
 			return nil, problemf(ErrBadPublicKey, http.StatusBadRequest, "unsupported EC curve %q", j.Crv)
 		}
@@ -284,21 +282,19 @@ func (j *JWK) PublicKey() (crypto.PublicKey, error) {
 			return nil, err
 		}
 		// The on-curve check has to happen before the point is used: a point
-		// off the curve is a classic invalid-curve attack input. crypto/ecdh
-		// is where that check lives now (elliptic.IsOnCurve is deprecated),
-		// and it takes the uncompressed SEC 1 encoding, 0x04 || X || Y.
+		// off the curve is a classic invalid-curve attack input.
+		// ParseUncompressedPublicKey does that check and takes the
+		// uncompressed SEC 1 encoding, 0x04 || X || Y. It returns the same
+		// curve and coordinates the struct literal did (#412).
 		point := make([]byte, 0, 1+2*byteLen)
 		point = append(point, 4)
 		point = append(point, xb...)
 		point = append(point, yb...)
-		if _, err := ecdhCurve.NewPublicKey(point); err != nil {
+		pub, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+		if err != nil {
 			return nil, problemf(ErrBadPublicKey, http.StatusBadRequest, "EC JWK point is not on curve %s", j.Crv)
 		}
-		return &ecdsa.PublicKey{
-			Curve: curve,
-			X:     new(big.Int).SetBytes(xb),
-			Y:     new(big.Int).SetBytes(yb),
-		}, nil
+		return pub, nil
 
 	case "RSA":
 		nBytes, err := b64.DecodeString(j.N)
