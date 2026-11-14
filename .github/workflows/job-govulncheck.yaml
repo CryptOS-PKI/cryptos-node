@@ -1,0 +1,49 @@
+name: Govulncheck
+# Known-vulnerability scan of the Go code. govulncheck reports only
+# vulnerabilities the code can reach (a called function, not just a required
+# module) and exits non-zero on one, so a finding fails the job. It also runs
+# weekly: an advisory can be published against code that has not changed.
+#
+# The scan includes the Go standard library at the go.mod version, so a
+# vulnerability fixed in a later Go patch release fails until go.mod moves up.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+  schedule:
+    - cron: "17 6 * * 1"
+permissions:
+  contents: read
+# One run per PR per workflow: a new push cancels the older PR run. Pushes to
+# main are never cancelled, so every main commit keeps a result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  govulncheck:
+    name: 🛡️ Govulncheck (known vulnerabilities)
+    if: github.event.pull_request.draft != true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - name: Run govulncheck
+        run: govulncheck ./...
