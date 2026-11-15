@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -62,13 +63,17 @@ func newSCEPMintCmd(opts *globalOpts) *cobra.Command {
 			if ttl < 0 || ttl%time.Second != 0 {
 				return errors.New("--ttl must be a whole number of seconds, for example 1h or 30m")
 			}
+			if ttl/time.Second > math.MaxUint32 {
+				return errors.New("--ttl is too long: the node takes at most 4294967295 seconds")
+			}
+			ttlSeconds := uint32(ttl / time.Second) //nolint:gosec // G115: non-negative and checked against MaxUint32 above
 			client, closeConn, err := dial(opts)
 			if err != nil {
 				return err
 			}
 			defer func() { _ = closeConn() }()
 			resp, err := client.MintScepChallenge(cmd.Context(), &nodev1.MintScepChallengeRequest{
-				Profile: profile, TtlSeconds: uint32(ttl / time.Second), BoundNames: names,
+				Profile: profile, TtlSeconds: ttlSeconds, BoundNames: names,
 			})
 			if err != nil {
 				return err

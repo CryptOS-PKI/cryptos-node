@@ -264,7 +264,7 @@ func (t *TPM) ExtendPCR(pcr int, data []byte) error {
 	digest := sha256.Sum256(data)
 	_, err = (tpm2.PCRExtend{
 		PCRHandle: tpm2.AuthHandle{
-			Handle: tpm2.TPMHandle(pcr),
+			Handle: tpm2.TPMHandle(pcr), //nolint:gosec // G115: a PCR index is 0 to 23
 			Auth:   tpm2.PasswordAuth(nil),
 		},
 		Digests: tpm2.TPMLDigestValues{

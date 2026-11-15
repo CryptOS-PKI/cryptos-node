@@ -177,7 +177,7 @@ func imageSizeAndDigest(path string) (uint64, string, error) {
 		return 0, "", fmt.Errorf("the image %s is empty", path)
 	}
 
-	return uint64(n), hex.EncodeToString(sum.Sum(nil)), nil
+	return uint64(n), hex.EncodeToString(sum.Sum(nil)), nil //nolint:gosec // G115: n is the size of a non-empty file, so it is positive
 }
 
 // sendImageChunks streams the image rather than reading it whole, so an

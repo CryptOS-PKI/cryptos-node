@@ -37,11 +37,6 @@ linters:
         # CLI arguments, the node config or fixed system locations. Nothing a
         # network peer sends reaches a file open.
         - G304
-        # G115 (integer conversion overflow): the conversions are width
-        # packing in the PE, ISO, FAT and NTP codecs. They are excluded
-        # until each one has been reviewed against the format's field width;
-        # that review is tracked in CryptOS-PKI/cryptos-node#411.
-        - G115
 
   exclusions:
     rules:

@@ -268,6 +268,6 @@ func revocationToProto(r revocation.RevokedRecord) *nodev1.Revocation {
 	return &nodev1.Revocation{
 		SerialHex:  r.SerialHex,
 		RevokedAt:  timestamppb.New(r.RevokedAt),
-		ReasonCode: int32(r.ReasonCode),
+		ReasonCode: int32(r.ReasonCode), //nolint:gosec // G115: a stored reason code is an RFC 5280 value, 0 to 10
 	}
 }

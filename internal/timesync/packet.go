@@ -62,8 +62,8 @@ type Timestamp uint64
 // TimestampFromTime encodes t, dropping the era, as RFC 5905 does on the wire.
 func TimestampFromTime(t time.Time) Timestamp {
 	secs := t.Unix() + ntpToUnix
-	frac := (uint64(t.Nanosecond()) << 32) / uint64(time.Second)
-	return Timestamp(uint64(uint32(secs))<<32 | frac)
+	frac := (uint64(t.Nanosecond()) << 32) / uint64(time.Second) //nolint:gosec // G115: Nanosecond is 0 to 999999999
+	return Timestamp(uint64(uint32(secs))<<32 | frac)            //nolint:gosec // G115: the era is dropped on purpose: RFC 5905 carries seconds modulo 2^32
 }
 
 // Time decodes ts into the era nearest pivot. The wire format carries no era,
@@ -80,8 +80,8 @@ func (ts Timestamp) Time(pivot time.Time) time.Time {
 			best = c
 		}
 	}
-	hi, lo := bits.Mul64(uint64(uint32(ts)), uint64(time.Second))
-	nsec := int64(hi<<32 | lo>>32)
+	hi, lo := bits.Mul64(uint64(uint32(ts)), uint64(time.Second)) //nolint:gosec // G115: the low 32 bits are the fraction field of an NTP timestamp, taken on purpose
+	nsec := int64(hi<<32 | lo>>32)                                //nolint:gosec // G115: the product of a 32-bit fraction and 1e9, shifted right by 32, is below 1e9
 	return time.Unix(best-ntpToUnix, nsec).UTC()
 }
 
@@ -125,8 +125,8 @@ func (h Header) Marshal() []byte {
 	b := make([]byte, PacketLen)
 	b[0] = h.Leap<<6 | (h.Version&0x7)<<3 | h.Mode&0x7
 	b[1] = h.Stratum
-	b[2] = byte(h.Poll)
-	b[3] = byte(h.Precision)
+	b[2] = byte(h.Poll)      //nolint:gosec // G115: Poll is a signed exponent; the wire byte holds its two's complement bits (RFC 5905)
+	b[3] = byte(h.Precision) //nolint:gosec // G115: Precision is a signed exponent; the wire byte holds its two's complement bits (RFC 5905)
 	binary.BigEndian.PutUint32(b[4:], uint32(h.RootDelay))
 	binary.BigEndian.PutUint32(b[8:], uint32(h.RootDispersion))
 	copy(b[12:16], h.ReferenceID[:])
@@ -148,8 +148,8 @@ func ParseHeader(b []byte) (Header, error) {
 	h.Version = (b[0] >> 3) & 0x7
 	h.Mode = b[0] & 0x7
 	h.Stratum = b[1]
-	h.Poll = int8(b[2])
-	h.Precision = int8(b[3])
+	h.Poll = int8(b[2])      //nolint:gosec // G115: Poll is a signed exponent; reinterpret the wire byte (RFC 5905)
+	h.Precision = int8(b[3]) //nolint:gosec // G115: Precision is a signed exponent; reinterpret the wire byte (RFC 5905)
 	h.RootDelay = Short(binary.BigEndian.Uint32(b[4:]))
 	h.RootDispersion = Short(binary.BigEndian.Uint32(b[8:]))
 	copy(h.ReferenceID[:], b[12:16])

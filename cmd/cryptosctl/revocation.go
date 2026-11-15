@@ -28,6 +28,9 @@ import (
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 )
 
+// maxReasonCode is the highest CRLReason value in RFC 5280, section 5.3.1.
+const maxReasonCode = 10
+
 // newRevokeCmd revokes a certificate this node issued, identified by its hex
 // serial, with an RFC 5280 reason code. The node records the revocation and
 // refreshes the published CRL.
@@ -44,6 +47,9 @@ func newRevokeCmd(opts *globalOpts) *cobra.Command {
 			if serial == "" {
 				return errors.New("--serial is required")
 			}
+			if reason < 0 || reason > maxReasonCode {
+				return fmt.Errorf("--reason must be an RFC 5280 reason code, 0 to %d", maxReasonCode)
+			}
 
 			client, closeConn, err := dial(opts)
 			if err != nil {
@@ -53,7 +59,7 @@ func newRevokeCmd(opts *globalOpts) *cobra.Command {
 
 			resp, err := client.RevokeCertificate(cmd.Context(), &nodev1.RevokeCertificateRequest{
 				SerialHex:  serial,
-				ReasonCode: int32(reason),
+				ReasonCode: int32(reason), //nolint:gosec // G115: checked against 0 to maxReasonCode above
 			})
 			if err != nil {
 				return err
