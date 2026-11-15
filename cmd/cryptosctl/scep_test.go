@@ -110,6 +110,9 @@ func TestSCEPChallengeMint(t *testing.T) {
 	if _, err := ts.run(t, "scep", "challenge", "mint", "--ttl", "1500ms"); err == nil {
 		t.Fatal("a TTL that is not whole seconds must be refused")
 	}
+	if _, err := ts.run(t, "scep", "challenge", "mint", "--ttl", "2000000h"); err == nil {
+		t.Fatal("a TTL that does not fit in 32 bits of seconds must be refused")
+	}
 }
 
 func TestSCEPChallengeListAndRevoke(t *testing.T) {
@@ -150,5 +153,16 @@ func TestSCEPVerbsWhenSCEPIsOff(t *testing.T) {
 	out, err := ts.run(t, "scep", "challenge", "mint")
 	if err == nil || !strings.Contains(err.Error(), "SCEP is not running") {
 		t.Fatalf("mint with SCEP off = %v (out=%s), want the not-running refusal", err, out)
+	}
+}
+
+func TestRevokeRefusesAReasonCodeOutsideRFC5280(t *testing.T) {
+	ts := startTestServer(t)
+	// 1<<32 wraps to 0 (unspecified) if it is narrowed to 32 bits unchecked.
+	for _, reason := range []string{"4294967296", "-1", "11"} {
+		_, err := ts.run(t, "ca", "revoke", "--serial", "01", "--reason", reason)
+		if err == nil || !strings.Contains(err.Error(), "--reason") {
+			t.Errorf("--reason %s: want a --reason error, got %v", reason, err)
+		}
 	}
 }

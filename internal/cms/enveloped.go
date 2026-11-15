@@ -288,7 +288,7 @@ func pkcs7Unpad(b []byte) (int, bool) {
 	good := subtle.ConstantTimeLessOrEq(1, pad) & subtle.ConstantTimeLessOrEq(pad, aes.BlockSize)
 	for i := 0; i < aes.BlockSize; i++ {
 		inPad := subtle.ConstantTimeLessOrEq(i+1, pad)
-		match := subtle.ConstantTimeByteEq(b[n-1-i], byte(pad))
+		match := subtle.ConstantTimeByteEq(b[n-1-i], byte(pad)) //nolint:gosec // G115: pad was read from a byte, so it is at most 255
 		good &= subtle.ConstantTimeSelect(inPad, match, 1)
 	}
 	if good != 1 {

@@ -37,6 +37,17 @@ const (
 
 // gptHeader returns the GPT header at off and its declared size, if there
 // is a valid-looking one there.
+// blockOffset is the byte offset of block lba in an image of imageLen bytes.
+// It refuses a block past the end of the image, so the multiplication cannot
+// overflow an int and a hostile GPT cannot steer an offset negative.
+func blockOffset(lba uint64, imageLen int) (int, bool) {
+	if lba > uint64(imageLen/blockSize) { //nolint:gosec // G115: imageLen is a slice length, so it is not negative
+		return 0, false
+	}
+
+	return int(lba) * blockSize, true //nolint:gosec // G115: lba is at most imageLen/blockSize, checked above
+}
+
 func gptHeader(b []byte, off int) ([]byte, int, bool) {
 	if off < 0 || off+blockSize > len(b) || string(b[off:off+8]) != gptSignature {
 		return nil, 0, false
@@ -61,11 +72,17 @@ func gptTailStart(b []byte) (int, bool) {
 		return 0, false
 	}
 	start := alt
-	if bh, _, ok := gptHeader(b, int(alt)*blockSize); ok {
-		start = min(start, binary.LittleEndian.Uint64(bh[72:]))
+	if off, ok := blockOffset(alt, len(b)); ok {
+		if bh, _, ok := gptHeader(b, off); ok {
+			start = min(start, binary.LittleEndian.Uint64(bh[72:]))
+		}
+	}
+	off, ok := blockOffset(start, len(b))
+	if !ok {
+		return 0, false
 	}
 
-	return int(start) * blockSize / SectorSize * SectorSize, true
+	return off / SectorSize * SectorSize, true
 }
 
 // fixMBR updates the MBR partition entries for grow blocks inserted at
@@ -108,8 +125,8 @@ func fixGPT(b []byte, th, grow uint64) error {
 	if esz < 128 || n <= 0 || n*esz > 1<<20 || entriesLBA >= th {
 		return fmt.Errorf("%w: GPT with %d entries of %d bytes at block %d", ErrLayout, n, esz, entriesLBA)
 	}
-	eo := int(entriesLBA) * blockSize
-	if eo+n*esz > len(b) {
+	eo, ok := blockOffset(entriesLBA, len(b))
+	if !ok || eo+n*esz > len(b) {
 		return fmt.Errorf("%w: the GPT entry array runs past the end of the image", ErrLayout)
 	}
 	entries := b[eo : eo+n*esz]
@@ -143,15 +160,19 @@ func fixGPT(b []byte, th, grow uint64) error {
 	binary.LittleEndian.PutUint32(h[88:], entriesCRC)
 	setHeaderCRC(h)
 
-	bh, _, ok := gptHeader(b, int(alt)*blockSize)
+	altOff, ok := blockOffset(alt, len(b))
+	if !ok {
+		return nil
+	}
+	bh, _, ok := gptHeader(b, altOff)
 	if !ok {
 		// No backup where the primary says it is: nothing more to keep in
 		// step.
 		return nil
 	}
 	backupEntries := shift(binary.LittleEndian.Uint64(bh[72:]))
-	beo := int(backupEntries) * blockSize
-	if beo+len(entries) > len(b) {
+	beo, ok := blockOffset(backupEntries, len(b))
+	if !ok || beo+len(entries) > len(b) {
 		return fmt.Errorf("%w: the GPT backup entry array runs past the end of the image", ErrLayout)
 	}
 	copy(b[beo:], entries)

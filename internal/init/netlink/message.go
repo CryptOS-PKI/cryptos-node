@@ -76,7 +76,7 @@ func rtaAlign(n int) int { return (n + 3) &^ 3 }
 func attr(typ uint16, data []byte) []byte {
 	l := rtattrHdrLen + len(data)
 	buf := make([]byte, rtaAlign(l))
-	native.PutUint16(buf[0:2], uint16(l))
+	native.PutUint16(buf[0:2], uint16(l)) //nolint:gosec // G115: an rtattr carries a few bytes of payload; its length is 16 bits on the wire
 	native.PutUint16(buf[2:4], typ)
 	copy(buf[4:], data)
 	return buf
@@ -86,7 +86,7 @@ func attr(typ uint16, data []byte) []byte {
 // the request sequence number; pid is left 0 (kernel).
 func frame(msgType, flags uint16, seq uint32, body []byte) []byte {
 	buf := make([]byte, nlmsghdrLen+len(body))
-	native.PutUint32(buf[0:4], uint32(len(buf)))
+	native.PutUint32(buf[0:4], uint32(len(buf))) //nolint:gosec // G115: a netlink message here is a few dozen bytes; its length is 32 bits on the wire
 	native.PutUint16(buf[4:6], msgType)
 	native.PutUint16(buf[6:8], flags)
 	native.PutUint32(buf[8:12], seq)
@@ -101,6 +101,7 @@ func buildLinkUpRequest(seq uint32, ifIndex int) []byte {
 	body := make([]byte, ifinfomsgLen)
 	body[0] = afUnspec
 	// [1] pad, [2:4] type — left zero.
+	//nolint:gosec // G115: ifIndex is a kernel interface index, a positive int32; the field carries its bits
 	native.PutUint32(body[4:8], uint32(int32(ifIndex))) // ifi_index
 	native.PutUint32(body[8:12], iffUp)                 // ifi_flags
 	native.PutUint32(body[12:16], iffUp)                // ifi_change
@@ -111,10 +112,12 @@ func buildLinkUpRequest(seq uint32, ifIndex int) []byte {
 func buildAddrRequest(seq uint32, ifIndex int, p netip.Prefix) []byte {
 	addr := p.Addr().As4()
 	body := make([]byte, ifaddrmsgLen)
-	body[0] = afInet                                    // ifa_family
-	body[1] = byte(p.Bits())                            // ifa_prefixlen
-	body[2] = 0                                         // ifa_flags
-	body[3] = rtScopeUniverse                           // ifa_scope
+	body[0] = afInet // ifa_family
+	//nolint:gosec // G115: an IPv4 prefix length is 0 to 32
+	body[1] = byte(p.Bits())  // ifa_prefixlen
+	body[2] = 0               // ifa_flags
+	body[3] = rtScopeUniverse // ifa_scope
+	//nolint:gosec // G115: ifIndex is a kernel interface index, a positive int32; the field carries its bits
 	native.PutUint32(body[4:8], uint32(int32(ifIndex))) // ifa_index
 	body = append(body, attr(ifaLocal, addr[:])...)
 	body = append(body, attr(ifaAddress, addr[:])...)
@@ -134,7 +137,7 @@ func buildDefaultRouteRequest(seq uint32, ifIndex int, gw netip.Addr) []byte {
 	body[7] = rtnUnicast      // rtm_type
 	body = append(body, attr(rtaGateway, g[:])...)
 	oif := make([]byte, 4)
-	native.PutUint32(oif, uint32(int32(ifIndex)))
+	native.PutUint32(oif, uint32(int32(ifIndex))) //nolint:gosec // G115: ifIndex is a kernel interface index, a positive int32; the field carries its bits
 	body = append(body, attr(rtaOif, oif)...)
 	// Use NLM_F_REPLACE so init is authoritative over the default route even when
 	// the kernel's ip=dhcp autoconfig has already installed one; without REPLACE
@@ -157,10 +160,12 @@ func buildAddrDumpRequest(seq uint32) []byte {
 func buildAddrDelRequest(seq uint32, ifIndex int, p netip.Prefix) []byte {
 	addr := p.Addr().As4()
 	body := make([]byte, ifaddrmsgLen)
-	body[0] = afInet                                    // ifa_family
-	body[1] = byte(p.Bits())                            // ifa_prefixlen
-	body[2] = 0                                         // ifa_flags
-	body[3] = rtScopeUniverse                           // ifa_scope
+	body[0] = afInet // ifa_family
+	//nolint:gosec // G115: an IPv4 prefix length is 0 to 32
+	body[1] = byte(p.Bits())  // ifa_prefixlen
+	body[2] = 0               // ifa_flags
+	body[3] = rtScopeUniverse // ifa_scope
+	//nolint:gosec // G115: ifIndex is a kernel interface index, a positive int32; the field carries its bits
 	native.PutUint32(body[4:8], uint32(int32(ifIndex))) // ifa_index
 	body = append(body, attr(ifaLocal, addr[:])...)
 	body = append(body, attr(ifaAddress, addr[:])...)
@@ -190,7 +195,7 @@ func parseAddrMessages(msgs [][]byte, ifIndex int) ([]netip.Prefix, error) {
 		ifa := msg[nlmsghdrLen : nlmsghdrLen+ifaddrmsgLen]
 		family := ifa[0]
 		prefixLen := ifa[1]
-		idx := int(int32(native.Uint32(ifa[4:8])))
+		idx := int(int32(native.Uint32(ifa[4:8]))) //nolint:gosec // G115: the wire field is a signed int32, so the bits are reinterpreted
 		if family != afInet || idx != ifIndex {
 			continue
 		}
@@ -251,5 +256,5 @@ func parseAck(resp []byte) (errno int32, ok bool) {
 	if len(resp) < nlmsghdrLen+4 {
 		return 0, false
 	}
-	return int32(native.Uint32(resp[nlmsghdrLen : nlmsghdrLen+4])), true
+	return int32(native.Uint32(resp[nlmsghdrLen : nlmsghdrLen+4])), true //nolint:gosec // G115: the wire field is a signed int32, so the bits are reinterpreted
 }
