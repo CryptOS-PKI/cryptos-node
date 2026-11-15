@@ -334,7 +334,7 @@ func relayout(p *peImage, idx int, archive []byte) ([]byte, error) {
 	binary.LittleEndian.PutUint32(out[p.sizeOfImgOff:], uint32(sizeOfImage))
 	if in.chars&scnInitData != 0 {
 		initData := uint64(binary.LittleEndian.Uint32(out[p.initDataOff:])) + newRaw - uint64(in.rawSize)
-		binary.LittleEndian.PutUint32(out[p.initDataOff:], uint32(min(initData, maxImage)))
+		binary.LittleEndian.PutUint32(out[p.initDataOff:], uint32(min(initData, maxImage))) //nolint:gosec // G115: clamped to maxImage, which is MaxUint32
 	}
 	binary.LittleEndian.PutUint32(out[p.checksumOff:], 0)
 	binary.LittleEndian.PutUint64(out[p.secDirOff():], 0)

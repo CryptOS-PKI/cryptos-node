@@ -101,9 +101,9 @@ func sendDump(msg []byte) ([][]byte, error) {
 			}
 			if msgType == nlmsgError {
 				if msgLen >= nlmsghdrLen+4 {
-					errno := int32(native.Uint32(data[nlmsghdrLen : nlmsghdrLen+4]))
+					errno := int32(native.Uint32(data[nlmsghdrLen : nlmsghdrLen+4])) //nolint:gosec // G115: the kernel sends a signed 32-bit errno; this reads its bits back
 					if errno != 0 {
-						return nil, fmt.Errorf("netlink: dump error: %w", syscall.Errno(-errno))
+						return nil, fmt.Errorf("netlink: dump error: %w", syscall.Errno(-errno)) //nolint:gosec // G115: errno is a negative kernel errno here, so -errno is a small positive
 					}
 				}
 				return result, nil
@@ -141,7 +141,7 @@ func sendAck(msg []byte) error {
 	}
 	if errno != 0 {
 		// netlink reports negative errno.
-		return fmt.Errorf("netlink: kernel rejected request: %w", syscall.Errno(-errno))
+		return fmt.Errorf("netlink: kernel rejected request: %w", syscall.Errno(-errno)) //nolint:gosec // G115: errno is a negative kernel errno here, so -errno is a small positive
 	}
 	return nil
 }

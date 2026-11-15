@@ -105,8 +105,8 @@ func fixMBR(b []byte, th, grow uint64) {
 		case start+size >= th:
 			size += grow
 		}
-		binary.LittleEndian.PutUint32(e[8:], uint32(min(start, math.MaxUint32)))
-		binary.LittleEndian.PutUint32(e[12:], uint32(min(size, math.MaxUint32-min(start, math.MaxUint32))))
+		binary.LittleEndian.PutUint32(e[8:], uint32(min(start, math.MaxUint32)))                            //nolint:gosec // G115: clamped to MaxUint32 by min
+		binary.LittleEndian.PutUint32(e[12:], uint32(min(size, math.MaxUint32-min(start, math.MaxUint32)))) //nolint:gosec // G115: clamped to MaxUint32 by min
 	}
 }
 
