@@ -35,8 +35,6 @@ const (
 	mbrTableOff  = 446
 )
 
-// gptHeader returns the GPT header at off and its declared size, if there
-// is a valid-looking one there.
 // blockOffset is the byte offset of block lba in an image of imageLen bytes.
 // It refuses a block past the end of the image, so the multiplication cannot
 // overflow an int and a hostile GPT cannot steer an offset negative.
@@ -48,6 +46,8 @@ func blockOffset(lba uint64, imageLen int) (int, bool) {
 	return int(lba) * blockSize, true //nolint:gosec // G115: lba is at most imageLen/blockSize, checked above
 }
 
+// gptHeader returns the GPT header at off and its declared size, if there
+// is a valid-looking one there.
 func gptHeader(b []byte, off int) ([]byte, int, bool) {
 	if off < 0 || off+blockSize > len(b) || string(b[off:off+8]) != gptSignature {
 		return nil, 0, false
