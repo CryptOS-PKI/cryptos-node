@@ -154,7 +154,7 @@ func (v *fatVolume) set(c, val uint32) {
 			}
 			binary.LittleEndian.PutUint16(v.b[o:], w)
 		case 16:
-			binary.LittleEndian.PutUint16(v.b[base+int(c)*2:], uint16(val))
+			binary.LittleEndian.PutUint16(v.b[base+int(c)*2:], uint16(val)) //nolint:gosec // G115: a FAT16 cluster number is below 2^16
 		default:
 			o := base + int(c)*4
 			old := binary.LittleEndian.Uint32(v.b[o:])
@@ -189,7 +189,7 @@ func (v *fatVolume) isEndOfChain(x uint32) bool {
 func (v *fatVolume) chain(start uint32) ([]uint32, error) {
 	var cs []uint32
 	for c := start; !v.isEndOfChain(c); c = v.get(c) {
-		if c < 2 || c >= uint32(v.clusters)+2 {
+		if c < 2 || c >= uint32(v.clusters)+2 { //nolint:gosec // G115: a FAT volume has fewer than 2^28 clusters
 			return nil, fmt.Errorf("isoimage: the FAT chain from cluster %d reaches cluster %#x", start, c)
 		}
 		if len(cs) >= v.clusters {
@@ -356,7 +356,7 @@ func (v *fatVolume) replaceFile(o int, data []byte) error {
 	if v.kind == 32 {
 		binary.LittleEndian.PutUint16(v.b[o+20:], uint16(first>>16))
 	}
-	binary.LittleEndian.PutUint32(v.b[o+28:], uint32(len(data)))
+	binary.LittleEndian.PutUint32(v.b[o+28:], uint32(len(data))) //nolint:gosec // G115: the directory entry size field is 32 bits; the file is a UKI held in memory, far below 4 GiB
 	v.updateFSInfo()
 
 	return nil
@@ -370,7 +370,7 @@ func (v *fatVolume) allocate(n int) ([]uint32, error) {
 	}
 	var free []uint32
 	runStart, runLen := uint32(0), 0
-	for c := uint32(2); c < uint32(v.clusters)+2; c++ {
+	for c := uint32(2); c < uint32(v.clusters)+2; c++ { //nolint:gosec // G115: a FAT volume has fewer than 2^28 clusters
 		if v.get(c) != 0 {
 			runLen = 0
 			continue
@@ -402,7 +402,7 @@ func (v *fatVolume) updateFSInfo() {
 		return
 	}
 	var free uint32
-	for c := uint32(2); c < uint32(v.clusters)+2; c++ {
+	for c := uint32(2); c < uint32(v.clusters)+2; c++ { //nolint:gosec // G115: a FAT volume has fewer than 2^28 clusters
 		if v.get(c) == 0 {
 			free++
 		}

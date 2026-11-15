@@ -305,7 +305,7 @@ func rsaParms(bits int) *tpm2.TPMSRSAParms {
 	return &tpm2.TPMSRSAParms{
 		Symmetric: tpm2.TPMTSymDefObject{Algorithm: tpm2.TPMAlgNull},
 		Scheme:    tpm2.TPMTRSAScheme{Scheme: tpm2.TPMAlgNull},
-		KeyBits:   tpm2.TPMIRSAKeyBits(bits),
+		KeyBits:   tpm2.TPMIRSAKeyBits(bits), //nolint:gosec // G115: bits is an RSA key size of at most 4096, from RSAKeyBits
 	}
 }
 

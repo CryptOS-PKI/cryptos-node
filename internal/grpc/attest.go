@@ -47,7 +47,7 @@ func AttestationMessage(nonce []byte) []byte {
 	msg := make([]byte, 0, len(AttestationContext)+1+4+len(nonce))
 	msg = append(msg, AttestationContext...)
 	msg = append(msg, 0x00)
-	msg = binary.BigEndian.AppendUint32(msg, uint32(len(nonce)))
+	msg = binary.BigEndian.AppendUint32(msg, uint32(len(nonce))) //nolint:gosec // G115: a nonce is a few dozen bytes; gRPC caps a message far below 4 GiB
 	return append(msg, nonce...)
 }
 

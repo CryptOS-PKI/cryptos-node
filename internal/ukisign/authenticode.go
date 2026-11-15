@@ -85,7 +85,7 @@ func imageHash(p *peImage) []byte {
 func obsolete() []byte {
 	var b []byte
 	for _, r := range utf16.Encode([]rune("<<<Obsolete>>>")) {
-		b = append(b, byte(r>>8), byte(r))
+		b = append(b, byte(r>>8), byte(r)) //nolint:gosec // G115: the two bytes of a UTF-16 code unit, big endian
 	}
 
 	return b

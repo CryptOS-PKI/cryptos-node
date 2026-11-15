@@ -436,7 +436,7 @@ func (im *Image) ReplaceUKI(uki []byte) ([]byte, error) {
 		}
 		ext := out[int(c.lba)*SectorSize : (int(c.lba)+sectors(int(c.size)))*SectorSize]
 		clear(ext[copy(ext, uki):])
-		im.patchRecords(out, c.lba, c.lba, uint32(len(uki)))
+		im.patchRecords(out, c.lba, c.lba, uint32(len(uki))) //nolint:gosec // G115: a UKI is far below 4 GiB, the width of the ISO 9660 extent length
 	}
 	if len(moved) == 0 {
 		return out, nil
@@ -453,12 +453,12 @@ func (im *Image) ReplaceUKI(uki []byte) ([]byte, error) {
 	}
 	for i, c := range moved {
 		lba := p/SectorSize + i*newSectors
-		if uint64(lba) > math.MaxUint32 {
+		if uint64(lba) > math.MaxUint32 { //nolint:gosec // G115: lba is a non-negative sector index
 			return nil, fmt.Errorf("%w: the image outgrows 32-bit sector numbers", ErrLayout)
 		}
 		copy(out[lba*SectorSize:], uki)
 		clear(out[int(c.lba)*SectorSize : (int(c.lba)+sectors(int(c.size)))*SectorSize])
-		im.patchRecords(out, c.lba, uint32(lba), uint32(len(uki)))
+		im.patchRecords(out, c.lba, uint32(lba), uint32(len(uki))) //nolint:gosec // G115: a UKI is far below 4 GiB, the width of the ISO 9660 extent length; lba is checked against MaxUint32 above
 	}
 
 	return out, nil
@@ -502,13 +502,13 @@ func insert(b []byte, vds []int, p, grow int) ([]byte, error) {
 	copy(out, b[:p])
 	copy(out[p+grow:], b[p:])
 	for _, off := range vds {
-		vol := uint64(binary.LittleEndian.Uint32(out[off+80:])) + uint64(grow/SectorSize)
+		vol := uint64(binary.LittleEndian.Uint32(out[off+80:])) + uint64(grow/SectorSize) //nolint:gosec // G115: grow is a non-negative multiple of the sector size
 		if vol > math.MaxUint32 {
 			return nil, fmt.Errorf("%w: the image outgrows 32-bit sector numbers", ErrLayout)
 		}
 		putBoth32(out[off+80:], uint32(vol))
 	}
-	th, d := uint64(p/blockSize), uint64(grow/blockSize)
+	th, d := uint64(p/blockSize), uint64(grow/blockSize) //nolint:gosec // G115: p and grow are non-negative byte offsets
 	fixMBR(out, th, d)
 	if err := fixGPT(out, th, d); err != nil {
 		return nil, err

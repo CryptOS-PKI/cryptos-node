@@ -207,7 +207,7 @@ func encodeElement(id, body []byte) []byte {
 
 func appendLength(out []byte, n int) []byte {
 	if n < 0x80 {
-		return append(out, byte(n))
+		return append(out, byte(n)) //nolint:gosec // G115: n is below 0x80 on this branch
 	}
 	var tmp [4]byte
 	i := len(tmp)

@@ -310,7 +310,7 @@ func relayout(p *peImage, idx int, archive []byte) ([]byte, error) {
 	out = append(out, p.data[:in.rawPtr]...)
 	out = append(out, content...)
 	out = append(out, make([]byte, newRaw-newVSize)...)
-	putSection(out, in.hdrOff, uint32(newVSize), in.va, uint32(newRaw), in.rawPtr)
+	putSection(out, in.hdrOff, uint32(newVSize), in.va, uint32(newRaw), in.rawPtr) //nolint:gosec // G115: the relayout is discarded if the 4 GiB check below fails
 
 	prevEnd := uint64(in.va) + newVSize
 	for _, s := range p.sections[idx+1:] {
@@ -323,7 +323,7 @@ func relayout(p *peImage, idx int, archive []byte) ([]byte, error) {
 		if va+uint64(s.extent()) > maxImage || rawPtr > maxImage {
 			return nil, fmt.Errorf("%w: the signed image would exceed 4 GiB", ErrNotUKI)
 		}
-		putSection(out, s.hdrOff, s.vsize, uint32(va), s.rawSize, uint32(rawPtr))
+		putSection(out, s.hdrOff, s.vsize, uint32(va), s.rawSize, uint32(rawPtr)) //nolint:gosec // G115: va and rawPtr are checked against maxImage just above
 		prevEnd = va + uint64(s.extent())
 	}
 
@@ -334,7 +334,7 @@ func relayout(p *peImage, idx int, archive []byte) ([]byte, error) {
 	binary.LittleEndian.PutUint32(out[p.sizeOfImgOff:], uint32(sizeOfImage))
 	if in.chars&scnInitData != 0 {
 		initData := uint64(binary.LittleEndian.Uint32(out[p.initDataOff:])) + newRaw - uint64(in.rawSize)
-		binary.LittleEndian.PutUint32(out[p.initDataOff:], uint32(min(initData, maxImage)))
+		binary.LittleEndian.PutUint32(out[p.initDataOff:], uint32(min(initData, maxImage))) //nolint:gosec // G115: clamped to maxImage, which is MaxUint32
 	}
 	binary.LittleEndian.PutUint32(out[p.checksumOff:], 0)
 	binary.LittleEndian.PutUint64(out[p.secDirOff():], 0)
@@ -392,16 +392,16 @@ func putSection(b []byte, hdrOff int, vsize, va, rawSize, rawPtr uint32) {
 func appendCertificate(p *peImage, cms []byte) []byte {
 	off := len(p.data)
 	length := alignUp(uint64(8+len(cms)), certAlign)
-	out := make([]byte, off, off+int(length))
+	out := make([]byte, off, off+int(length)) //nolint:gosec // G115: length is a certificate table entry: a CMS blob of a few KiB, aligned
 	copy(out, p.data)
-	out = binary.LittleEndian.AppendUint32(out, uint32(length))
+	out = binary.LittleEndian.AppendUint32(out, uint32(length)) //nolint:gosec // G115: length is a certificate table entry: a CMS blob of a few KiB, aligned
 	out = binary.LittleEndian.AppendUint16(out, certRevision)
 	out = binary.LittleEndian.AppendUint16(out, certTypePKCS)
 	out = append(out, cms...)
-	out = append(out, make([]byte, off+int(length)-len(out))...)
+	out = append(out, make([]byte, off+int(length)-len(out))...) //nolint:gosec // G115: length is a certificate table entry: a CMS blob of a few KiB, aligned
 
-	binary.LittleEndian.PutUint32(out[p.secDirOff():], uint32(off))
-	binary.LittleEndian.PutUint32(out[p.secDirOff()+4:], uint32(length))
+	binary.LittleEndian.PutUint32(out[p.secDirOff():], uint32(off))      //nolint:gosec // G115: off is the image length, held under maxImage by relayout
+	binary.LittleEndian.PutUint32(out[p.secDirOff()+4:], uint32(length)) //nolint:gosec // G115: length is a certificate table entry: a CMS blob of a few KiB, aligned
 	binary.LittleEndian.PutUint32(out[p.checksumOff:], 0)
 	binary.LittleEndian.PutUint32(out[p.checksumOff:], checksum(out))
 
@@ -424,7 +424,7 @@ func checksum(b []byte) uint32 {
 	}
 	sum = (sum & 0xffff) + (sum >> 16)
 
-	return sum + uint32(len(b))
+	return sum + uint32(len(b)) //nolint:gosec // G115: the PE checksum adds the file length modulo 2^32 by definition
 }
 
 // certificateBlob returns the CMS SignedData in the image's certificate table.
