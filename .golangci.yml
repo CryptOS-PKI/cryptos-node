@@ -8,10 +8,75 @@ linters:
   default: none
   enable:
     - errcheck
+    - gosec
     - govet
     - ineffassign
     - staticcheck
     - unused
+
+  settings:
+    gosec:
+      # Each rule below is excluded on purpose, with the reason. Everything
+      # else gosec reports fails the lint job.
+      excludes:
+        # G101 (hardcoded credentials): fires on the LUKS token type names
+        # ("cryptos-kms", "cryptos-tpm2"), which are labels, not secrets.
+        - G101
+        # G204 (subprocess with variable): the only launches are cryptsetup
+        # and the installer's tool runner. The binary name is fixed or comes
+        # from the operator's own config, and no shell is involved.
+        - G204
+        # G301, G302, G306 (directory and file modes above 0750 / 0600): the
+        # files written this way are the ESP (FAT, which carries no owner
+        # and must be readable by the boot firmware) and cryptosctl's
+        # signed images, signatures and certificates, which are published.
+        - G301
+        - G302
+        - G306
+        # G304 (file path from a variable): paths come from the operator's
+        # CLI arguments, the node config or fixed system locations. Nothing a
+        # network peer sends reaches a file open.
+        - G304
+        # G115 (integer conversion overflow): the conversions are width
+        # packing in the PE, ISO, FAT and NTP codecs. They are excluded
+        # until each one has been reviewed against the format's field width;
+        # that review is tracked in CryptOS-PKI/cryptos-node#411.
+        - G115
+
+  exclusions:
+    rules:
+      # Test code builds fixtures from variable paths and URLs and talks to
+      # httptest servers, which trips the path, URL and taint rules.
+      - path: _test\.go
+        linters:
+          - gosec
+      - path: internal/isoimage/isotest/
+        linters:
+          - gosec
+      # G602: parseHeader has already checked len(envelope) >= headerLen.
+      - path: internal/backup/backup\.go
+        linters:
+          - gosec
+        text: "G602"
+      # G103: the console font ioctl passes a pointer to its request struct
+      # to the kernel, the one kind of unsafe use the design allows.
+      - path: cmd/cryptos-console/fontfallback_linux\.go
+        linters:
+          - gosec
+        text: "G103"
+      # G705: the SCEP response is a DER pkiMessage sent as
+      # application/x-pki-message, never rendered as HTML.
+      - path: internal/scep/http\.go
+        linters:
+          - gosec
+        text: "G705"
+      # G401 and G505 (SHA-1): RFC 5280 section 4.2.1.2 method 1 defines the
+      # subject key identifier as the SHA-1 of the public key. It is an
+      # identifier, not a signature or integrity check.
+      - path: internal/ca/ca\.go
+        linters:
+          - gosec
+        text: "G401|G505"
 
 issues:
   exclude-rules:
