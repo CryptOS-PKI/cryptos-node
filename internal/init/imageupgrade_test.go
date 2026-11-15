@@ -463,6 +463,27 @@ func TestUpgrader_StatusOnAnUnupgradedNode(t *testing.T) {
 	}
 }
 
+// Status names the upgrade anchor the node checks images against, so an
+// operator can prove which certificate a node trusts without staging an image.
+func TestUpgrader_StatusReportsTheUpgradeAnchor(t *testing.T) {
+	rel := newReleaseKey(t)
+	old := []byte("the running image")
+	esp := newESPDir(t, old)
+	u := newTestUpgrader(t, esp, rel, old, func() { t.Fatal("must not reboot") })
+
+	st, err := u.Status(context.Background())
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	sum := sha256.Sum256(rel.cert.Raw)
+	if got, want := st.GetUpgradeAnchorSha256(), hex.EncodeToString(sum[:]); got != want {
+		t.Errorf("upgrade_anchor_sha256 = %q, want %q", got, want)
+	}
+	if got, want := st.GetUpgradeAnchorSubject(), rel.cert.Subject.String(); got != want {
+		t.Errorf("upgrade_anchor_subject = %q, want %q", got, want)
+	}
+}
+
 // A build with no release certificate must refuse to construct an upgrader, so
 // the RPCs are Unimplemented rather than silently accepting any image.
 func TestNewImageUpgrader_RequiresARelease(t *testing.T) {

@@ -359,12 +359,18 @@ func (u *nodeImageUpgrader) Status(_ context.Context) (*nodev1.ImageStatus, erro
 }
 
 func (u *nodeImageUpgrader) imageStatus(st imageupgrade.Status) *nodev1.ImageStatus {
+	// Release is the upgrade anchor: the certificate an incoming image must be
+	// signed by. newImageUpgrader refuses a nil one.
+	anchor := sha256.Sum256(u.opts.Release.Raw)
+
 	return &nodev1.ImageStatus{
-		ActiveSha256:   st.ActiveDigest,
-		PreviousSha256: st.PreviousDigest,
-		RebootPending:  st.ActiveDigest != u.opts.Running,
-		RunningSha256:  u.opts.Running,
-		RunningVersion: u.opts.Version,
+		ActiveSha256:         st.ActiveDigest,
+		PreviousSha256:       st.PreviousDigest,
+		RebootPending:        st.ActiveDigest != u.opts.Running,
+		RunningSha256:        u.opts.Running,
+		RunningVersion:       u.opts.Version,
+		UpgradeAnchorSubject: u.opts.Release.Subject.String(),
+		UpgradeAnchorSha256:  hex.EncodeToString(anchor[:]),
 	}
 }
 
