@@ -79,6 +79,9 @@ func (r *recordingUpgrader) Status(context.Context) (*nodev1.ImageStatus, error)
 		RebootPending:  false,
 		RunningSha256:  "abcd",
 		RunningVersion: "v1.2.3",
+
+		UpgradeAnchorSubject: "CN=Example Release",
+		UpgradeAnchorSha256:  "feedface",
 	}, nil
 }
 
@@ -186,6 +189,22 @@ func TestImageStatus_ReportsTheRunningImage(t *testing.T) {
 	}
 	if !strings.Contains(out, "v1.2.3") {
 		t.Errorf("output does not name the running version: %s", out)
+	}
+}
+
+func TestImageStatus_ShowsTheUpgradeAnchor(t *testing.T) {
+	ts := startImageServer(t, &recordingUpgrader{})
+
+	for _, format := range []string{"human", "json", "yaml"} {
+		out, err := ts.run(t, "image", "status", "-o", format)
+		if err != nil {
+			t.Fatalf("image status -o %s: %v (out=%s)", format, err, out)
+		}
+		for _, want := range []string{"CN=Example Release", "feedface"} {
+			if !strings.Contains(out, want) {
+				t.Errorf("-o %s output is missing %q: %s", format, want, out)
+			}
+		}
 	}
 }
 

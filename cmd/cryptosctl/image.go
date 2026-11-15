@@ -435,8 +435,10 @@ func writeImageStatus(w io.Writer, s *nodev1.ImageStatus, format string) error {
 	}
 
 	_, err := fmt.Fprintf(w,
-		"Running version:  %s\nRunning image:    %s\nNext boot image:  %s\nPrevious image:   %s\nReboot pending:   %s\n",
-		s.GetRunningVersion(), s.GetRunningSha256(), s.GetActiveSha256(), previous, pending)
+		"Running version:  %s\nRunning image:    %s\nNext boot image:  %s\nPrevious image:   %s\nReboot pending:   %s\n"+
+			"Upgrade anchor:   %s\nAnchor SHA-256:   %s\n",
+		s.GetRunningVersion(), s.GetRunningSha256(), s.GetActiveSha256(), previous, pending,
+		s.GetUpgradeAnchorSubject(), s.GetUpgradeAnchorSha256())
 
 	return err
 }

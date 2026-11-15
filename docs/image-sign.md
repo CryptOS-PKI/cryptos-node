@@ -19,6 +19,10 @@ A node installed from an image you signed this way takes signed in-place
 upgrades: any later image you sign with the same key can be staged onto it
 with `cryptosctl image stage`.
 
+To check which anchor a running node trusts, run `cryptosctl image status`: it
+prints the anchor's subject and SHA-256, which you can compare with the
+certificate you signed with.
+
 It signs an unsigned ISO the same way, so you can install from a signed ISO
 without rebuilding it; see [Sign an ISO](#sign-an-iso).
 

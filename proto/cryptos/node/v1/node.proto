@@ -704,4 +704,11 @@ message ImageStatus {
   // running_version is the CryptOS version string baked into the running image,
   // which is what an operator actually recognises.
   string running_version = 5;
+  // upgrade_anchor_subject is the subject of the certificate the running image
+  // checks an incoming image's signature against (its upgrade anchor).
+  string upgrade_anchor_subject = 6;
+  // upgrade_anchor_sha256 is the SHA-256 of that certificate's DER encoding,
+  // hex encoded, so an operator can compare it with the certificate they
+  // signed with.
+  string upgrade_anchor_sha256 = 7;
 }
