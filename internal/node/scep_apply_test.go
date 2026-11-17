@@ -22,6 +22,7 @@ import (
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"github.com/CryptOS-PKI/cryptos-node/internal/config"
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 )
 
 var scepIssuingYAML = []byte(`apiVersion: cryptos.dev/v1alpha1
@@ -29,7 +30,7 @@ kind: MachineConfig
 metadata: {name: scep-test}
 role: {kind: issuing}
 network: {interface: eth0, address: 10.0.0.10/24, gateway: 10.0.0.1}
-bootstrap: {admin_cert_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+bootstrap: {admin_cert_pem: "` + testadmin.YAMLPEM + `"}
 pki:
   root_key_alg: ECDSA-P384
   root_subject: {common_name: "SCEP Test Issuing", organization: "Test", country: "US"}

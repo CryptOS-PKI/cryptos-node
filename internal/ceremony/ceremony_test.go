@@ -155,8 +155,8 @@ func testAdminCert(t *testing.T) (*x509.Certificate, string) {
 	return cert, pemStr
 }
 
-func machineYAML(adminFP [32]byte) []byte {
-	return machineYAMLRole(adminFP, "root")
+func machineYAML(adminPEM string) []byte {
+	return machineYAMLRole(adminPEM, "root")
 }
 
 // machineYAMLRole builds the same otherwise-valid MachineConfig as
@@ -165,7 +165,7 @@ func machineYAML(adminFP [32]byte) []byte {
 // pki.parent trust anchor to pass config validation, so one is emitted
 // for any non-root role; the ceremony still refuses the role before it
 // ever consults the anchor.
-func machineYAMLRole(adminFP [32]byte, role string) []byte {
+func machineYAMLRole(adminPEM, role string) []byte {
 	parent := ""
 	if role != "root" {
 		parent = `
@@ -183,7 +183,8 @@ network:
   address: 10.0.0.10/24
   gateway: 10.0.0.1
 bootstrap:
-  admin_cert_sha256: "%s"
+  admin_cert_pem: |
+%s
 pki:
   root_key_alg: ECDSA-P384
   root_subject:
@@ -192,7 +193,17 @@ pki:
     country: "US"
   root_validity_years: 20
   path_len_constraint: 2%s
-`, role, hex.EncodeToString(adminFP[:]), parent))
+`, role, strings.TrimRight(indentPEM(adminPEM, "    "), "\n"), parent))
+}
+
+// indentPEM indents every line of a PEM block so it can sit under a YAML block
+// scalar.
+func indentPEM(pemStr, prefix string) string {
+	var b strings.Builder
+	for _, l := range strings.Split(strings.TrimRight(pemStr, "\n"), "\n") {
+		b.WriteString(prefix + l + "\n")
+	}
+	return b.String()
 }
 
 // collector accumulates streamed event kinds.
@@ -242,7 +253,7 @@ func TestStart_HappyPath_LocalSocket(t *testing.T) {
 	c := &collector{}
 	req := &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAML(h.adminFP),
+		MachineConfigYaml: machineYAML(h.adminPEM),
 	}
 	if err := h.engine.Start(ctx, req, c.send); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -293,7 +304,7 @@ func TestStart_MTLS_Authorized(t *testing.T) {
 	c := &collector{}
 	req := &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAML(h.adminFP),
+		MachineConfigYaml: machineYAML(h.adminPEM),
 	}
 	if err := h.engine.Start(ctx, req, c.send); err != nil {
 		t.Fatalf("Start (mTLS authorized): %v", err)
@@ -308,7 +319,7 @@ func TestStart_MTLS_WrongCert(t *testing.T) {
 	c := &collector{}
 	req := &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAML(h.adminFP),
+		MachineConfigYaml: machineYAML(h.adminPEM),
 	}
 	err := h.engine.Start(ctx, req, c.send)
 	if status.Code(err) != codes.PermissionDenied {
@@ -326,7 +337,7 @@ func TestStart_IdentityExists(t *testing.T) {
 	h, ctx := newHarness(t)
 	req := &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAML(h.adminFP),
+		MachineConfigYaml: machineYAML(h.adminPEM),
 	}
 	if err := h.engine.Start(ctx, req, (&collector{}).send); err != nil {
 		t.Fatalf("first Start: %v", err)
@@ -347,7 +358,7 @@ kind: MachineConfig
 role:
   kind: bogus
 network: {interface: eth0, address: 10.0.0.10/24, gateway: 10.0.0.1}
-bootstrap: {admin_cert_sha256: "` + hex.EncodeToString(h.adminFP[:]) + `"}
+bootstrap: {admin_cert_pem: "` + strings.ReplaceAll(h.adminPEM, "\n", `\n`) + `"}
 pki: {root_key_alg: ECDSA-P384, root_subject: {common_name: x}, root_validity_years: 1, path_len_constraint: 0}
 `),
 	}
@@ -369,7 +380,7 @@ func TestStart_NonRootRole_Refused(t *testing.T) {
 	c := &collector{}
 	req := &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAMLRole(h.adminFP, "intermediate"),
+		MachineConfigYaml: machineYAMLRole(h.adminPEM, "intermediate"),
 	}
 	err := h.engine.Start(ctx, req, c.send)
 	if status.Code(err) != codes.FailedPrecondition {
@@ -405,7 +416,7 @@ func TestStart_RootWithProtocolRefused(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, ctx := newHarness(t)
-			yaml := string(machineYAML(h.adminFP)) + `
+			yaml := string(machineYAML(h.adminPEM)) + `
   profiles:
     - name: leaf-server
       key_alg: ECDSA-P384
@@ -440,7 +451,7 @@ func TestVerifyManifest_Tamper(t *testing.T) {
 	h, ctx := newHarness(t)
 	if err := h.engine.Start(ctx, &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAML(h.adminFP),
+		MachineConfigYaml: machineYAML(h.adminPEM),
 	}, (&collector{}).send); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -529,7 +540,7 @@ func TestStart_RejectsConcurrentCeremony(t *testing.T) {
 	h, ctx := newHarness(t)
 	req := &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAML(h.adminFP),
+		MachineConfigYaml: machineYAML(h.adminPEM),
 	}
 
 	started := make(chan struct{})

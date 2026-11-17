@@ -36,7 +36,7 @@ import (
 func TestStart_RSAOnTPMWithoutSize_FailsPrecondition(t *testing.T) {
 	h, ctx := newHarness(t)
 	c := &collector{}
-	rsaYAML := bytes.Replace(machineYAML(h.adminFP), []byte("root_key_alg: ECDSA-P384"), []byte("root_key_alg: RSA-3072"), 1)
+	rsaYAML := bytes.Replace(machineYAML(h.adminPEM), []byte("root_key_alg: ECDSA-P384"), []byte("root_key_alg: RSA-3072"), 1)
 
 	err := h.engine.Start(ctx, &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
@@ -58,7 +58,7 @@ func TestStart_RSAOnTPMWithoutSize_FailsPrecondition(t *testing.T) {
 	retry := &collector{}
 	if err := h.engine.Start(ctx, &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: machineYAML(h.adminFP),
+		MachineConfigYaml: machineYAML(h.adminPEM),
 	}, retry.send); err != nil {
 		t.Fatalf("retry with ECDSA-P384: %v", err)
 	}

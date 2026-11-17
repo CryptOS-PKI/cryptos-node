@@ -225,7 +225,11 @@ type Network struct {
 }
 
 // Bootstrap carries the administrator credential trusted on first boot.
-// Exactly one of AdminCertPEM or AdminCertSHA256 must be set.
+// AdminCertPEM, the whole certificate, is what a node needs: its mTLS listener
+// builds its client trust pool from it. AdminCertSHA256 is still parsed so a
+// config that names it gets a clear refusal, but Validate rejects it, because a
+// node installed with only a fingerprint can't serve its management API and
+// boot-loops. Exactly one of the two must be set, and only the PEM is accepted.
 type Bootstrap struct {
 	AdminCertPEM    string `yaml:"admin_cert_pem"`
 	AdminCertSHA256 string `yaml:"admin_cert_sha256"`
@@ -1011,13 +1015,14 @@ func validateBootstrap(b Bootstrap) error {
 		return errors.New("config: bootstrap: exactly one of admin_cert_pem or admin_cert_sha256 is required")
 	}
 	if hasSHA {
-		if len(b.AdminCertSHA256) != 64 {
-			return fmt.Errorf("config: bootstrap.admin_cert_sha256: must be 64 hex characters, got %d", len(b.AdminCertSHA256))
-		}
-		if _, err := hex.DecodeString(b.AdminCertSHA256); err != nil {
-			return fmt.Errorf("config: bootstrap.admin_cert_sha256: not hex: %w", err)
-		}
-		return nil
+		// The mTLS listener builds its client trust pool from the full
+		// certificate (init.ServerTLSConfig refuses a fingerprint), so a node
+		// configured this way erases its disk, reboots and then boot-loops
+		// without ever opening its management API. Refuse it here, where every
+		// path that accepts a config (the client, the maintenance installer, the
+		// reprovisioner and a running node's ApplyConfig) validates, before
+		// anything is written.
+		return errors.New("config: bootstrap.admin_cert_sha256: an installed node needs the full admin certificate to serve its management API; set bootstrap.admin_cert_pem")
 	}
 	block, rest := pem.Decode([]byte(b.AdminCertPEM))
 	if block == nil {

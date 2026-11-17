@@ -36,6 +36,7 @@ import (
 	"github.com/CryptOS-PKI/cryptos-node/internal/config"
 	cgrpc "github.com/CryptOS-PKI/cryptos-node/internal/grpc"
 	"github.com/CryptOS-PKI/cryptos-node/internal/storage/etcd"
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 )
 
 // Providers satisfy the gRPC dependency interfaces.
@@ -302,7 +303,7 @@ kind: MachineConfig
 metadata: {name: apply-test}
 role: {kind: root}
 network: {interface: eth0, address: 10.0.0.10/24, gateway: 10.0.0.1}
-bootstrap: {admin_cert_sha256: "` + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" + `"}
+bootstrap: {admin_cert_pem: "` + testadmin.YAMLPEM + `"}
 pki:
   root_key_alg: ECDSA-P384
   root_subject: {common_name: "Apply Test Root", organization: "Test", country: "US"}
@@ -372,7 +373,7 @@ kind: MachineConfig
 metadata: {name: protocols-test}
 role: {kind: issuing}
 network: {interface: eth0, address: 10.0.0.10/24, gateway: 10.0.0.1}
-bootstrap: {admin_cert_sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+bootstrap: {admin_cert_pem: "` + testadmin.YAMLPEM + `"}
 pki:
   root_key_alg: ECDSA-P384
   root_subject: {common_name: "Protocols Test Issuing CA", organization: "Test", country: "US"}

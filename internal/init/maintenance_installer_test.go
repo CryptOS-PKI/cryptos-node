@@ -19,6 +19,7 @@ limitations under the License.
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -26,6 +27,7 @@ import (
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
 	"github.com/CryptOS-PKI/cryptos-node/internal/install"
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 )
 
 // validMachineConfig returns a minimal but fully-valid MachineConfig proto for
@@ -41,9 +43,7 @@ func validMachineConfig() *nodev1.MachineConfig {
 			Address:   "10.0.0.1/24",
 			Gateway:   "10.0.0.254",
 		},
-		Bootstrap: &nodev1.Bootstrap{
-			AdminCertSha256: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
-		},
+		Bootstrap: &nodev1.Bootstrap{AdminCertPem: testadmin.PEMText},
 		Pki: &nodev1.Pki{
 			RootKeyAlg:        "ECDSA-P384",
 			RootValidityYears: 10,
@@ -66,6 +66,46 @@ func TestMaintenanceInstaller_MissingDisk(t *testing.T) {
 	}
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("code = %v, want InvalidArgument", status.Code(err))
+	}
+}
+
+// TestMaintenanceInstaller_FingerprintOnlyAdminIsRefusedBeforeTheDisk: a config
+// that names the admin only by fingerprint would erase the install disk and
+// then boot-loop (the mTLS listener needs the whole certificate), so the
+// installer refuses it with InvalidArgument before it looks for the UKI or
+// touches the disk, and the node stays in maintenance mode.
+func TestMaintenanceInstaller_FingerprintOnlyAdminIsRefusedBeforeTheDisk(t *testing.T) {
+	cfg := validMachineConfig()
+	cfg.Bootstrap = &nodev1.Bootstrap{
+		AdminCertSha256: "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+	}
+	rebootCh := make(chan struct{}, 1)
+	inst := &maintenanceInstaller{
+		rebootCh: rebootCh,
+		doLocateUKI: func(string) (string, error) {
+			t.Error("the installer looked for the UKI for a config it should have refused")
+			return "", nil
+		},
+		doInstall: func(context.Context, install.Options, install.Runner, string, func(string, string) error, install.Deps) error {
+			t.Error("the installer wrote the disk for a config it should have refused")
+			return nil
+		},
+	}
+	_, err := inst.Install(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected the fingerprint-only config to be refused")
+	}
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("code = %v, want InvalidArgument (%v)", status.Code(err), err)
+	}
+	if !strings.Contains(err.Error(), "bootstrap.admin_cert_sha256: an installed node needs the full admin certificate") ||
+		!strings.Contains(err.Error(), "set bootstrap.admin_cert_pem") {
+		t.Fatalf("the refusal does not say what to do: %v", err)
+	}
+	select {
+	case <-rebootCh:
+		t.Fatal("the node signalled a reboot after refusing the config")
+	default:
 	}
 }
 

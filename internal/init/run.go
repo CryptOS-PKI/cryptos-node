@@ -192,7 +192,8 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 	// Branded per-stage progress. begin marks a stage as in progress; done marks
 	// it complete with [ok]. If Boot returns an error before done() (a fail-closed
 	// reboot; there is no shell to inspect), the deferred renderer surfaces [!!]
-	// on the stage that was running, so the console shows WHERE boot died.
+	// on the stage that was running, so the console shows WHERE boot died, with the
+	// error under it (see reportBootFailure).
 	var currentStep string
 	begin := func(name string) { currentStep = name }
 	done := func() {
@@ -202,8 +203,8 @@ func boot(ctx context.Context, shutdown *shutdownRequests) (err error) {
 		currentStep = ""
 	}
 	defer func() {
-		if err != nil && scr != nil && currentStep != "" {
-			_ = scr.Step(currentStep, console.StepFail)
+		if err != nil {
+			reportBootFailure(scr, currentStep, err, time.Sleep)
 		}
 	}()
 
