@@ -62,6 +62,7 @@ import (
 	"github.com/CryptOS-PKI/cryptos-node/internal/node"
 	"github.com/CryptOS-PKI/cryptos-node/internal/revocation"
 	"github.com/CryptOS-PKI/cryptos-node/internal/storage/etcd"
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 	"github.com/CryptOS-PKI/cryptos-node/internal/tpm"
 )
 
@@ -235,7 +236,7 @@ func newRSATPMStore(t *testing.T) *node.Store {
 // rsaTPMRootYAML is the operator's root MachineConfig with an RSA-3072 CA key.
 // The node's state-key mode is not part of it: which backend holds the key is
 // the ceremony's RootKey, here the tpm-mode backend.
-func rsaTPMRootYAML(adminFP [32]byte) []byte {
+func rsaTPMRootYAML() []byte {
 	return []byte(fmt.Sprintf(`apiVersion: cryptos.dev/v1alpha1
 kind: MachineConfig
 metadata:
@@ -247,7 +248,7 @@ network:
   address: 10.0.0.10/24
   gateway: 10.0.0.1
 bootstrap:
-  admin_cert_sha256: "%s"
+  admin_cert_pem: "` + testadmin.YAMLPEM + `"
 pki:
   root_key_alg: RSA-3072
   root_subject:
@@ -256,7 +257,7 @@ pki:
     country: "US"
   root_validity_years: 20
   path_len_constraint: 1
-`, hex.EncodeToString(adminFP[:])))
+`))
 }
 
 // loadCAKey reloads the CA key the way production's keyLoader does: the
@@ -310,7 +311,7 @@ func TestTPMHeldRSACAEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ceremony.New: %v", err)
 	}
-	rsaYAML := rsaTPMRootYAML(adminFP)
+	rsaYAML := rsaTPMRootYAML()
 	if err := eng.Start(ctx, &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
 		MachineConfigYaml: rsaYAML,

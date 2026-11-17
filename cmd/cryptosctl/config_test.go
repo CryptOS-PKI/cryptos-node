@@ -205,6 +205,40 @@ func TestConfigApply_WarnsWhenRevocationHostHasNoResolver(t *testing.T) {
 	}
 }
 
+// A config that names the admin only by fingerprint is refused on the
+// workstation, before the client reads its identity or dials anything: a node
+// installed from it would erase its disk and then boot-loop. The error says
+// what to do instead.
+func TestConfigApply_RefusesFingerprintOnlyAdminBeforeDialing(t *testing.T) {
+	raw := string(buildMachineYAMLWithInstall(t, "/dev/vdb"))
+	start := strings.Index(raw, "bootstrap:")
+	end := strings.Index(raw, "pki:")
+	if start < 0 || end < start {
+		t.Fatalf("test config has no bootstrap section:\n%s", raw)
+	}
+	raw = raw[:start] + "bootstrap:\n  admin_cert_sha256: \"" + strings.Repeat("a", 64) + "\"\n" + raw[end:]
+	file := filepath.Join(t.TempDir(), "machine.yaml")
+	if err := os.WriteFile(file, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing here can be dialled or read: if the refusal didn't come first, the
+	// error would be about the missing identity or the connection.
+	missing := filepath.Join(t.TempDir(), "missing.pem")
+	cmd := newConfigApplyCmd(&globalOpts{endpoint: "127.0.0.1:1", identityCert: missing, identityKey: missing, trustCert: missing})
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"-f", file})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected the fingerprint-only config to be refused")
+	}
+	for _, want := range []string{"bootstrap.admin_cert_sha256", "needs the full admin certificate", "set bootstrap.admin_cert_pem"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not contain %q", err.Error(), want)
+		}
+	}
+}
+
 // apply warns when the node has no declared time source, and when a hostname
 // time server has no static resolver to find it.
 func TestConfigApply_WarnsAboutTimeSource(t *testing.T) {

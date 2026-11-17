@@ -49,6 +49,7 @@ import (
 	cinit "github.com/CryptOS-PKI/cryptos-node/internal/init"
 	"github.com/CryptOS-PKI/cryptos-node/internal/node"
 	"github.com/CryptOS-PKI/cryptos-node/internal/storage/etcd"
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 )
 
 // TestHierarchyE2E drives the full root plus subordinate CA lifecycle with the
@@ -369,7 +370,7 @@ func establishRoot(t *testing.T, ctx context.Context, store *node.Store) [32]byt
 
 	req := &nodev1.StartCeremonyRequest{
 		Kind:              nodev1.CeremonyKind_CEREMONY_KIND_FIRST_BOOT_ROOT,
-		MachineConfigYaml: rootCeremonyYAML(adminFP),
+		MachineConfigYaml: rootCeremonyYAML(),
 	}
 	// A no-peer context is the local root-only UNIX socket: authorizeCaller
 	// trusts it, so this drives the production ceremony without mTLS setup.
@@ -466,7 +467,6 @@ func rootProfilesConfig() *config.Config {
 func subordinateConfig(t *testing.T, rootPEM string) *config.Config {
 	t.Helper()
 	indented := indentPEM(rootPEM, "      ")
-	adminFP := newFP(t)
 	yaml := []byte(fmt.Sprintf(`apiVersion: cryptos.dev/v1alpha1
 kind: MachineConfig
 metadata:
@@ -478,7 +478,7 @@ network:
   address: 10.0.0.11/24
   gateway: 10.0.0.1
 bootstrap:
-  admin_cert_sha256: "%s"
+  admin_cert_pem: "`+testadmin.YAMLPEM+`"
 pki:
   root_key_alg: ECDSA-P384
   root_subject:
@@ -500,7 +500,7 @@ pki:
         is_ca: false
       key_usage: [digital_signature]
       ext_key_usage: [server_auth]
-`, hex.EncodeToString(adminFP[:]), indented))
+`, indented))
 	cfg, err := config.Parse(yaml)
 	if err != nil {
 		t.Fatalf("config.Parse (subordinate): %v", err)
@@ -511,7 +511,7 @@ pki:
 // rootCeremonyYAML is the operator's MachineConfig for the first-boot root
 // ceremony. The ceremony consumes only the root subject and validity here; the
 // signing profiles live in the node's loaded config (rootProfilesConfig).
-func rootCeremonyYAML(adminFP [32]byte) []byte {
+func rootCeremonyYAML() []byte {
 	return []byte(fmt.Sprintf(`apiVersion: cryptos.dev/v1alpha1
 kind: MachineConfig
 metadata:
@@ -523,7 +523,7 @@ network:
   address: 10.0.0.10/24
   gateway: 10.0.0.1
 bootstrap:
-  admin_cert_sha256: "%s"
+  admin_cert_pem: "` + testadmin.YAMLPEM + `"
 pki:
   root_key_alg: ECDSA-P384
   root_subject:
@@ -532,7 +532,7 @@ pki:
     country: "US"
   root_validity_years: 20
   path_len_constraint: 1
-`, hex.EncodeToString(adminFP[:])))
+`))
 }
 
 // adminFingerprint mints a throwaway admin certificate and returns its SHA-256
@@ -556,11 +556,6 @@ func adminFingerprint(t *testing.T) [32]byte {
 	}
 	return sha256.Sum256(der)
 }
-
-// newFP returns a distinct admin fingerprint for the subordinate config; the
-// subordinate never runs the root ceremony, so any valid fingerprint passes
-// config validation.
-func newFP(t *testing.T) [32]byte { return adminFingerprint(t) }
 
 // newP384Key generates a fresh ECDSA P-384 key (the Phase-2 profile).
 func newP384Key(t *testing.T) *ecdsa.PrivateKey {

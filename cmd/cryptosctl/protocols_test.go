@@ -24,6 +24,8 @@ import (
 	"testing"
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
+
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 )
 
 func TestHumanStatusShowsProtocols(t *testing.T) {
@@ -96,7 +98,7 @@ pki:
       - key_id: ops
         hmac_key_base64: EAB_KEY
 bootstrap:
-  admin_cert_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  admin_cert_pem: "` + testadmin.YAMLPEM + `"
 `
 
 // config get prints the EAB secret blank, and feeding that output back to

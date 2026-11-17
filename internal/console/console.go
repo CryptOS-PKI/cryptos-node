@@ -104,6 +104,78 @@ func (r *Renderer) Step(name string, state StepState) error {
 	return err
 }
 
+const (
+	// FailDetailWidth is the widest a failed stage's cause line is drawn, indent
+	// included, so it fits the console without wrapping on its own.
+	FailDetailWidth = 76
+	// FailDetailMaxLines caps how many lines of cause are drawn under a failed
+	// stage, so a long error can't scroll the stage line off the screen.
+	FailDetailMaxLines = 6
+
+	failDetailIndent = "      "
+)
+
+// StepFailed writes a failed bring-up stage line and, under it, why the stage
+// failed. A node that restarts on a failed stage has no shell to inspect, so
+// the console is the only place the reason can be read. The cause is wrapped
+// at FailDetailWidth columns on word boundaries, a word longer than a line is
+// split, and a cause longer than FailDetailMaxLines lines is cut with an
+// ellipsis. A nil cause draws only the stage line, as Step does.
+func (r *Renderer) StepFailed(name string, cause error) error {
+	if err := r.Step(name, StepFail); err != nil {
+		return err
+	}
+	if cause == nil {
+		return nil
+	}
+	for _, l := range wrapFailDetail(cause.Error(), FailDetailWidth-len(failDetailIndent), FailDetailMaxLines) {
+		if _, err := fmt.Fprintf(r.w, "%s%s\n", failDetailIndent, l); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// wrapFailDetail wraps text to lines of at most width bytes, at most maxLines
+// of them. A line that was cut off ends with "...".
+func wrapFailDetail(text string, width, maxLines int) []string {
+	var lines []string
+	cur := ""
+	flush := func() {
+		if cur != "" {
+			lines = append(lines, cur)
+			cur = ""
+		}
+	}
+	for _, word := range strings.Fields(text) {
+		for len(word) > width {
+			flush()
+			lines = append(lines, word[:width])
+			word = word[width:]
+		}
+		switch {
+		case cur == "":
+			cur = word
+		case len(cur)+1+len(word) <= width:
+			cur += " " + word
+		default:
+			flush()
+			cur = word
+		}
+	}
+	flush()
+	if len(lines) <= maxLines {
+		return lines
+	}
+	lines = lines[:maxLines]
+	last := lines[maxLines-1]
+	if len(last) > width-3 {
+		last = last[:width-3]
+	}
+	lines[maxLines-1] = last + "..."
+	return lines
+}
+
 // Shutdown clears the screen and writes a branded teardown message -- the
 // mark and version, then message (for example "Rebooting..." or "Shutting
 // down...") -- matching the boot banner's style. It is the last thing drawn

@@ -37,7 +37,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -60,6 +59,7 @@ import (
 	"github.com/CryptOS-PKI/cryptos-node/internal/node"
 	"github.com/CryptOS-PKI/cryptos-node/internal/revocation"
 	"github.com/CryptOS-PKI/cryptos-node/internal/storage/etcd"
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 )
 
 const (
@@ -253,7 +253,6 @@ func newStoreWithClient(t *testing.T) (*node.Store, *clientv3.Client) {
 // Account Binding key. It goes through config.Parse so validateACME runs.
 func intermediateACMEConfig(t *testing.T, rootPEM string, env kindEnv, baseURL, eabKeyB64 string) *config.Config {
 	t.Helper()
-	adminFP := newFP(t)
 	suffix := env.hostname[strings.Index(env.hostname, ".")+1:]
 	yaml := fmt.Sprintf(`apiVersion: cryptos.dev/v1alpha1
 kind: MachineConfig
@@ -266,7 +265,7 @@ network:
   address: 10.0.0.11/24
   gateway: 10.0.0.1
 bootstrap:
-  admin_cert_sha256: "%s"
+  admin_cert_pem: "`+testadmin.YAMLPEM+`"
 pki:
   root_key_alg: ECDSA-P384
   root_subject:
@@ -306,7 +305,7 @@ pki:
     external_account_keys:
       - key_id: %s
         hmac_key_base64: %s
-`, hex.EncodeToString(adminFP[:]), indentPEM(rootPEM, "      "), kindLeafProfile,
+`, indentPEM(rootPEM, "      "), kindLeafProfile,
 		env.hostIP, baseURL, kindLeafProfile, suffix, kindEABKeyID, eabKeyB64)
 	cfg, err := config.Parse([]byte(yaml))
 	if err != nil {

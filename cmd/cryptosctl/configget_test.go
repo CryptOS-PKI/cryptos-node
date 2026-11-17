@@ -23,6 +23,8 @@ import (
 	"testing"
 
 	"github.com/CryptOS-PKI/cryptos-node/internal/config"
+
+	"github.com/CryptOS-PKI/cryptos-node/internal/testadmin"
 )
 
 // minimalConfig is a machine config that validates, so the round trip is
@@ -45,7 +47,7 @@ pki:
     common_name: Round Trip Root CA
     organization: Example Organization
 bootstrap:
-  admin_cert_sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  admin_cert_pem: "` + testadmin.YAMLPEM + `"
 `
 
 // The point of the verb: read what the node is actually configured with,

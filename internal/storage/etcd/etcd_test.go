@@ -24,6 +24,7 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.uber.org/zap/zapcore"
 )
 
 func TestOpen_RoundTrip(t *testing.T) {
@@ -143,5 +144,31 @@ func TestOpen_RangeOverPrefix(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("prefix range mismatch: got=%v want=%v", got, want)
+	}
+}
+
+// PID 1 owns the console, so the client must not write its retry warnings to
+// it. When init exits on a failed boot stage the client's calls are cancelled
+// and it retries in a tight loop, and warnings from that loop would scroll the
+// failed stage and its cause off the screen. Errors still get through.
+func TestClient_LogsOnlyErrors(t *testing.T) {
+	srv, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	cli, err := srv.Client()
+	if err != nil {
+		t.Fatalf("Client: %v", err)
+	}
+	defer func() { _ = cli.Close() }()
+
+	core := cli.GetLogger().Core()
+	if core.Enabled(zapcore.WarnLevel) {
+		t.Fatalf("the client logs warnings; its retry warnings would flood the console")
+	}
+	if !core.Enabled(zapcore.ErrorLevel) {
+		t.Fatalf("the client drops errors; a real client failure would go unreported")
 	}
 }

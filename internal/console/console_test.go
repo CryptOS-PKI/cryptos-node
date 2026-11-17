@@ -18,6 +18,7 @@ limitations under the License.
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -79,5 +80,80 @@ func TestRendererStep(t *testing.T) {
 		if buf.String() != c.want {
 			t.Fatalf("Step(%q,%v) = %q, want %q", c.name, c.state, buf.String(), c.want)
 		}
+	}
+}
+
+// A failed stage shows why it failed, not just where: the cause is drawn under
+// the stage line, wrapped to the screen so it can be read on a VM console.
+func TestRendererStepFailedShowsTheCause(t *testing.T) {
+	cause := errors.New("init: ServerTLSConfig: the mTLS listener needs the full bootstrap admin certificate (PEM), not just a fingerprint")
+	var buf bytes.Buffer
+	if err := console.NewRenderer(&buf).StepFailed("management API", cause); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if lines[0] != "[!!]  management API" {
+		t.Fatalf("first line = %q, want the failed stage line", lines[0])
+	}
+	if len(lines) < 2 {
+		t.Fatalf("no cause drawn under the stage:\n%s", buf.String())
+	}
+	var words []string
+	for _, l := range lines[1:] {
+		if len(l) > console.FailDetailWidth {
+			t.Fatalf("cause line is %d columns, over the %d the screen shows: %q", len(l), console.FailDetailWidth, l)
+		}
+		if !strings.HasPrefix(l, "      ") {
+			t.Fatalf("cause line %q is not indented under the stage", l)
+		}
+		words = append(words, strings.Fields(l)...)
+	}
+	if got := strings.Join(words, " "); got != cause.Error() {
+		t.Fatalf("the cause was altered when wrapped:\n got %q\nwant %q", got, cause.Error())
+	}
+}
+
+func TestRendererStepFailedWithNoCauseIsTheStageLine(t *testing.T) {
+	var buf bytes.Buffer
+	if err := console.NewRenderer(&buf).StepFailed("network", nil); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "[!!]  network\n" {
+		t.Fatalf("got %q, want only the stage line", buf.String())
+	}
+}
+
+// A very long cause is cut to a few lines and says so, so it can't scroll the
+// stage line off a 25-line console.
+func TestRendererStepFailedTruncatesALongCause(t *testing.T) {
+	cause := errors.New(strings.Repeat("word ", 400))
+	var buf bytes.Buffer
+	if err := console.NewRenderer(&buf).StepFailed("clock", cause); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) > 1+console.FailDetailMaxLines {
+		t.Fatalf("%d lines drawn, want at most %d", len(lines), 1+console.FailDetailMaxLines)
+	}
+	if !strings.HasSuffix(lines[len(lines)-1], "...") {
+		t.Fatalf("a cut cause must end with an ellipsis, last line %q", lines[len(lines)-1])
+	}
+}
+
+// One word longer than the line (a long path or hash) is split, not dropped or
+// left to run off the screen.
+func TestRendererStepFailedSplitsAnOverlongWord(t *testing.T) {
+	cause := errors.New("bad " + strings.Repeat("x", 200))
+	var buf bytes.Buffer
+	if err := console.NewRenderer(&buf).StepFailed("state volume", cause); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")[1:] {
+		if len(l) > console.FailDetailWidth {
+			t.Fatalf("line of %d columns: %q", len(l), l)
+		}
+	}
+	if strings.Count(buf.String(), "x") < 150 {
+		t.Fatalf("most of the long word was dropped:\n%s", buf.String())
 	}
 }
