@@ -331,20 +331,23 @@ func TestValidate_Management(t *testing.T) {
 	}
 	cfg.Management = &Management{}
 	if err := cfg.Validate(); err == nil {
-		t.Fatal("management with empty manager_cn and trust_pem must be rejected")
+		t.Fatal("management with an empty manager_cn must be rejected")
 	}
 
-	cfg.Management = &Management{ManagerCN: "operator@acme.example"}
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("management with empty trust_pem must be rejected")
+	// The Fleet Manager names itself and sends no trust_pem, so manager_cn alone
+	// is a valid link (#418). trust_pem is not used to authenticate anything.
+	cfg.Management = &Management{ManagerCN: "operator@acme.example", OperatorSurfaceReadonly: true}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("management with only a manager_cn must be accepted: %v", err)
 	}
 
+	// A node that already carries a trust_pem still loads.
 	cfg.Management = &Management{
 		ManagerCN: "operator@acme.example",
 		TrustPEM:  "-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n",
 	}
 	if err := cfg.Validate(); err != nil {
-		t.Fatalf("valid management must be accepted: %v", err)
+		t.Fatalf("management with a trust_pem must be accepted: %v", err)
 	}
 }
 
@@ -949,6 +952,39 @@ func TestRootKeyAlgKeyAlgorithm(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Errorf("KeyAlgorithm(%q) = %v, want %v", tc.alg, got, tc.want)
+			}
+		})
+	}
+}
+
+// A node linked to a Fleet Manager carries a management block. The manager
+// names itself (manager_cn); trust_pem is not used to authenticate anything
+// and the manager does not send one, so only manager_cn is required.
+func TestParse_Management(t *testing.T) {
+	base := string(validYAML(t))
+	for _, tc := range []struct {
+		name    string
+		block   string
+		wantErr string
+	}{
+		{"manager_cn only", "management:\n  manager_cn: operator@example.org\n  operator_surface_readonly: true\n", ""},
+		{"manager_cn with a trust_pem is still accepted", "management:\n  manager_cn: operator@example.org\n  trust_pem: \"anything\"\n", ""},
+		{"no manager_cn", "management:\n  operator_surface_readonly: true\n", "config: management.manager_cn: required when management is set"},
+		{"no management block", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Parse([]byte(base + tc.block))
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Parse: %v", err)
+				}
+				if tc.block != "" && (cfg.Management == nil || cfg.Management.ManagerCN != "operator@example.org") {
+					t.Fatalf("Management = %+v, want manager_cn operator@example.org", cfg.Management)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("error = %v, want %q", err, tc.wantErr)
 			}
 		})
 	}

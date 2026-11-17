@@ -136,3 +136,64 @@ func TestConfigStoreApply_RejectsInvalidConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestConfigStoreApply_AcceptsTheManagementBlockTheFleetManagerSends is the
+// regression guard for #418. A LINK enrollment makes the Fleet Manager call
+// SetManagement, which reads the node's config, sets only the management block
+// and applies it. The manager names itself (manager_cn) and marks the operator
+// surface read-only, and sends no trust_pem on purpose: the operator CA is never
+// pushed to a node. Apply used to refuse that with "management.trust_pem:
+// required", so linking a running node always failed.
+func TestConfigStoreApply_AcceptsTheManagementBlockTheFleetManagerSends(t *testing.T) {
+	seed, err := config.Parse([]byte(applyValidateSeed))
+	if err != nil {
+		t.Fatalf("config.Parse(seed): %v", err)
+	}
+	fs := config.NewFileStore(t.TempDir())
+	if _, err := fs.Write([]byte(applyValidateSeed)); err != nil {
+		t.Fatalf("FileStore.Write (seed): %v", err)
+	}
+
+	pb := seed.ToProto()
+	pb.Management = &nodev1.Management{ManagerCn: "operator@example.org", OperatorSurfaceReadonly: true}
+
+	if _, err := NewConfigStore(fs).Apply(context.Background(), pb); err != nil {
+		t.Fatalf("Apply(management without trust_pem): %v", err)
+	}
+
+	raw, _, ok, err := fs.Read()
+	if err != nil || !ok {
+		t.Fatalf("FileStore.Read: ok=%v err=%v", ok, err)
+	}
+	got, err := config.Parse(raw)
+	if err != nil {
+		t.Fatalf("the persisted config does not parse: %v", err)
+	}
+	if got.Management == nil || got.Management.ManagerCN != "operator@example.org" || !got.Management.OperatorSurfaceReadonly {
+		t.Fatalf("persisted Management = %+v, want manager_cn operator@example.org and a read-only operator surface", got.Management)
+	}
+}
+
+// A management block with no manager_cn is still refused, and nothing is saved.
+func TestConfigStoreApply_RefusesAManagementBlockWithNoManagerCN(t *testing.T) {
+	seed, err := config.Parse([]byte(applyValidateSeed))
+	if err != nil {
+		t.Fatalf("config.Parse(seed): %v", err)
+	}
+	fs := config.NewFileStore(t.TempDir())
+	if _, err := fs.Write([]byte(applyValidateSeed)); err != nil {
+		t.Fatalf("FileStore.Write (seed): %v", err)
+	}
+	beforeRaw, _, _, _ := fs.Read()
+
+	pb := seed.ToProto()
+	pb.Management = &nodev1.Management{OperatorSurfaceReadonly: true}
+	_, err = NewConfigStore(fs).Apply(context.Background(), pb)
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("Apply code = %v, want InvalidArgument (err: %v)", status.Code(err), err)
+	}
+	afterRaw, _, _, _ := fs.Read()
+	if !bytes.Equal(afterRaw, beforeRaw) {
+		t.Fatal("the persisted config changed after a refused Apply")
+	}
+}

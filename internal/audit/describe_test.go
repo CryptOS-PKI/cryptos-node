@@ -120,3 +120,38 @@ func TestMethodName(t *testing.T) {
 		}
 	}
 }
+
+// A failed call says why when the handler recorded a reason: the operator
+// reading the log sees what the node refused, not only that it did.
+func TestDescribe_FailureReason(t *testing.T) {
+	const method = "/cryptos.node.v1.NodeService/SetManagement"
+	for _, tc := range []struct {
+		name        string
+		ev          *nodev1.AuditEvent
+		wantSummary string
+	}{
+		{
+			name: "a failure with a reason shows it",
+			ev: &nodev1.AuditEvent{RpcMethod: method, Outcome: nodev1.Outcome_OUTCOME_ERROR,
+				Details: map[string]string{DetailError: "config: management.manager_cn: required when management is set"}},
+			wantSummary: "changed the Fleet Manager link (failed): config: management.manager_cn: required when management is set",
+		},
+		{
+			name:        "a failure with no reason is as before",
+			ev:          &nodev1.AuditEvent{RpcMethod: method, Outcome: nodev1.Outcome_OUTCOME_ERROR},
+			wantSummary: "changed the Fleet Manager link (failed)",
+		},
+		{
+			name: "a success ignores a stray reason",
+			ev: &nodev1.AuditEvent{RpcMethod: method, Outcome: nodev1.Outcome_OUTCOME_OK,
+				Details: map[string]string{DetailError: "left over"}},
+			wantSummary: "changed the Fleet Manager link",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, got := Describe(tc.ev); got != tc.wantSummary {
+				t.Fatalf("summary = %q, want %q", got, tc.wantSummary)
+			}
+		})
+	}
+}

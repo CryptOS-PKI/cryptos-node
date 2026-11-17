@@ -35,6 +35,15 @@ const (
 	DetailRequiresReboot   = "requires_reboot"
 )
 
+// DetailError is the details key under which a call that failed records why,
+// when the handler knows: the status message it returned, at most
+// MaxDetailError bytes. Describe shows it after "(failed)".
+const DetailError = "error"
+
+// MaxDetailError is the longest reason an entry records, in bytes, so one
+// large error can't bloat the signed, chained log.
+const MaxDetailError = 256
+
 // DetailRebootKind is the details key under which a Reboot entry records
 // whether the caller asked for a restart (RebootKindReboot) or a power-off
 // (RebootKindPowerOff).
@@ -115,6 +124,9 @@ func Describe(ev *nodev1.AuditEvent) (target, summary string) {
 		summary += " (denied)"
 	case nodev1.Outcome_OUTCOME_ERROR:
 		summary += " (failed)"
+		if reason := ev.GetDetails()[DetailError]; reason != "" {
+			summary += ": " + reason
+		}
 	}
 	return target, summary
 }

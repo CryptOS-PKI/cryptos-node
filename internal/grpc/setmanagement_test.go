@@ -18,13 +18,16 @@ limitations under the License.
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	stdgrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	nodev1 "github.com/CryptOS-PKI/cryptos-node/gen/go/cryptos/node/v1"
+	"github.com/CryptOS-PKI/cryptos-node/internal/audit"
 )
 
 // setManagementFixtureConfig returns a fully-populated MachineConfig
@@ -165,5 +168,65 @@ func TestSetManagement_UnauthorizedIsDenied(t *testing.T) {
 	}
 	if store.last != nil {
 		t.Fatalf("Apply was consulted despite a denied caller")
+	}
+}
+
+// A SetManagement the node refuses says why in its audit entry. The Fleet
+// Manager reports a masked error to the operator, so without the reason the
+// node's own log was the only place to look, and it only said "failed".
+func TestSetManagement_FailureRecordsTheReasonInTheAuditEntry(t *testing.T) {
+	store := &mockConfigStore{
+		current: setManagementFixtureConfig(),
+		err:     status.Error(codes.InvalidArgument, "node: Apply: validate: config: management.manager_cn: required when management is set"),
+	}
+	auditor := &mockAuditor{}
+	srv, err := New(ServerConfig{TLSConfig: newFixtures(t).serverConf, Auditor: auditor, ConfigStore: store})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	_, callErr := srv.unaryAudit(context.Background(), &nodev1.SetManagementRequest{}, &stdgrpc.UnaryServerInfo{FullMethod: nodev1.NodeService_SetManagement_FullMethodName},
+		func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.SetManagement(ctx, req.(*nodev1.SetManagementRequest))
+		})
+	if callErr == nil {
+		t.Fatal("expected SetManagement to fail")
+	}
+
+	got := auditor.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("recorded %d entries, want 1", len(got))
+	}
+	ev := got[0]
+	if ev.GetOutcome() != nodev1.Outcome_OUTCOME_ERROR {
+		t.Fatalf("outcome = %v, want ERROR", ev.GetOutcome())
+	}
+	reason := ev.GetDetails()[audit.DetailError]
+	if !strings.Contains(reason, "config: management.manager_cn: required when management is set") {
+		t.Fatalf("audit reason = %q, want the node's refusal", reason)
+	}
+}
+
+// The reason is bounded, so one huge error can't bloat the signed log.
+func TestSetManagement_AuditReasonIsBounded(t *testing.T) {
+	store := &mockConfigStore{
+		current: setManagementFixtureConfig(),
+		err:     status.Error(codes.InvalidArgument, strings.Repeat("x", 5000)),
+	}
+	auditor := &mockAuditor{}
+	srv, err := New(ServerConfig{TLSConfig: newFixtures(t).serverConf, Auditor: auditor, ConfigStore: store})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, _ = srv.unaryAudit(context.Background(), &nodev1.SetManagementRequest{}, &stdgrpc.UnaryServerInfo{FullMethod: nodev1.NodeService_SetManagement_FullMethodName},
+		func(ctx context.Context, req interface{}) (interface{}, error) {
+			return srv.SetManagement(ctx, req.(*nodev1.SetManagementRequest))
+		})
+	got := auditor.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("recorded %d entries, want 1", len(got))
+	}
+	if n := len(got[0].GetDetails()[audit.DetailError]); n == 0 || n > audit.MaxDetailError {
+		t.Fatalf("audit reason is %d bytes, want 1 to %d", n, audit.MaxDetailError)
 	}
 }
