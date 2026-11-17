@@ -19,7 +19,6 @@ limitations under the License.
 import (
 	"context"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -44,7 +43,7 @@ func TestNewLocal_UnixSocketRoundTrip(t *testing.T) {
 		t.Fatalf("NewLocal: %v", err)
 	}
 
-	sockPath := filepath.Join(t.TempDir(), "cryptos.sock")
+	sockPath := shortSockPath(t)
 	lis, err := net.Listen("unix", sockPath)
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)

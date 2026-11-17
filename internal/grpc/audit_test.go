@@ -320,7 +320,7 @@ func localAuditedServer(t *testing.T, auditor Auditor, cfg ServerConfig) (string
 	if err != nil {
 		t.Fatalf("NewLocal: %v", err)
 	}
-	sock := filepath.Join(t.TempDir(), "cryptos.sock")
+	sock := shortSockPath(t)
 	lis, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
