@@ -313,7 +313,26 @@ func (s *Server) Client() (*clientv3.Client, error) {
 		Endpoints:   []string{"http://" + s.clientAddr},
 		DialTimeout: 5 * time.Second,
 		Context:     context.Background(),
+		Logger:      clientLogger(),
 	})
+}
+
+// clientLogger is the etcd client's logger: errors only. The client's default
+// logger writes its retry warnings to the console, and when init stops on a
+// failed boot stage the client's calls are cancelled and it retries in a tight
+// loop, which scrolls the failed stage and its cause off the screen. The server
+// is already quiet for the same reason (see openOnce); a build failure falls
+// back to a no-op logger rather than failing the client.
+func clientLogger() *zap.Logger {
+	cfg := zap.NewProductionConfig()
+	cfg.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
+	cfg.OutputPaths = []string{"stderr"}
+	cfg.ErrorOutputPaths = []string{"stderr"}
+	l, err := cfg.Build()
+	if err != nil {
+		return zap.NewNop()
+	}
+	return l
 }
 
 func mustHTTPURL(hostPort string) url.URL {

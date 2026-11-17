@@ -529,19 +529,31 @@ func TestParse_BootstrapExactlyOne(t *testing.T) {
 	}
 }
 
-func TestParse_AdminCertSHA256(t *testing.T) {
+// wantFingerprintRefusal is the one message a config naming the bootstrap
+// admin only by fingerprint gets. A node installed from such a config erases its
+// disk and then boot-loops, because its mTLS listener needs the whole
+// certificate, so the config is refused before anything is written.
+const wantFingerprintRefusal = "config: bootstrap.admin_cert_sha256: an installed node needs the full admin certificate to serve its management API; set bootstrap.admin_cert_pem"
+
+func TestParse_AdminCertSHA256_Refused(t *testing.T) {
 	base := string(validYAML(t))
-	// Replace the entire bootstrap section with the sha256 path.
+	// Replace the entire bootstrap section with the fingerprint-only form.
 	idxStart := strings.Index(base, "bootstrap:")
 	idxEnd := strings.Index(base, "pki:")
 	withSHA := base[:idxStart] +
 		"bootstrap:\n  admin_cert_sha256: \"" + strings.Repeat("a", 64) + "\"\n" +
 		base[idxEnd:]
-	if _, err := Parse([]byte(withSHA)); err != nil {
-		t.Fatalf("Parse with sha256 bootstrap: %v", err)
+	_, err := Parse([]byte(withSHA))
+	if err == nil {
+		t.Fatalf("Parse accepted a fingerprint-only bootstrap admin; an installed node can't boot with it")
+	}
+	if err.Error() != wantFingerprintRefusal {
+		t.Fatalf("error = %q, want %q", err.Error(), wantFingerprintRefusal)
 	}
 }
 
+// A malformed fingerprint gets the same refusal, not a complaint about its
+// length: the form itself is what's refused.
 func TestParse_AdminCertSHA256_BadLength(t *testing.T) {
 	base := string(validYAML(t))
 	idxStart := strings.Index(base, "bootstrap:")
@@ -549,8 +561,38 @@ func TestParse_AdminCertSHA256_BadLength(t *testing.T) {
 	withBad := base[:idxStart] +
 		"bootstrap:\n  admin_cert_sha256: \"deadbeef\"\n" +
 		base[idxEnd:]
-	if _, err := Parse([]byte(withBad)); err == nil {
-		t.Fatalf("Parse should reject 8-char sha256")
+	_, err := Parse([]byte(withBad))
+	if err == nil {
+		t.Fatalf("Parse should reject an 8-char sha256")
+	}
+	if err.Error() != wantFingerprintRefusal {
+		t.Fatalf("error = %q, want %q", err.Error(), wantFingerprintRefusal)
+	}
+}
+
+// Both set still reports the "exactly one" rule, so the operator is told to
+// pick one rather than that the fingerprint form is refused.
+func TestParse_AdminCertSHA256_WithPEM_ExactlyOne(t *testing.T) {
+	base := string(validYAML(t))
+	withBoth := strings.Replace(
+		base,
+		"bootstrap:\n  admin_cert_pem: |\n",
+		"bootstrap:\n  admin_cert_sha256: \""+strings.Repeat("a", 64)+"\"\n  admin_cert_pem: |\n",
+		1,
+	)
+	_, err := Parse([]byte(withBoth))
+	if err == nil {
+		t.Fatalf("Parse accepted both bootstrap fields")
+	}
+	if !strings.Contains(err.Error(), "exactly one of admin_cert_pem or admin_cert_sha256 is required") {
+		t.Fatalf("error = %q, want the exactly-one message", err.Error())
+	}
+}
+
+// The whole certificate is the supported form and must keep working.
+func TestParse_AdminCertPEM_Accepted(t *testing.T) {
+	if _, err := Parse(validYAML(t)); err != nil {
+		t.Fatalf("Parse with admin_cert_pem: %v", err)
 	}
 }
 
