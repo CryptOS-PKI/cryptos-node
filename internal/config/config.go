@@ -177,8 +177,15 @@ const (
 	StateKeyModeKMS    = "kms"
 )
 
-// Management marks a node as Fleet-Manager-managed (set via ApplyConfig on a
+// Management marks a node as Fleet-Manager-managed (set via SetManagement on a
 // LINK enrollment; takes effect on reboot). Nil on unmanaged nodes.
+//
+// ManagerCN is a label: the Fleet Manager sets it to the CN of the operator who
+// approved the link. TrustPEM is optional, reserved and not used to
+// authenticate anything today: the manager authenticates to the node with the
+// node's own admin certificate, which the mTLS listener and AuthorizeAdmin
+// check, not with this value. A stored value is kept as it is, and nothing
+// treats it as a trust anchor.
 type Management struct {
 	ManagerCN               string `yaml:"manager_cn"`
 	TrustPEM                string `yaml:"trust_pem"`
@@ -648,17 +655,18 @@ func (c *Config) validate(keptSecrets bool) error {
 	return nil
 }
 
-// validateManagement enforces that a managed node names its manager and
-// carries the trust anchor; an unmanaged node (nil) has no constraint.
+// validateManagement enforces that a managed node names its manager; an
+// unmanaged node (nil) has no constraint. trust_pem is not required: nothing on
+// the node authenticates the manager with it (the manager connects with the
+// node's own admin certificate, which AuthorizeAdmin pins), and the Fleet
+// Manager never pushes one, since the operator CA is never sent to a node. A
+// node that carries one still loads.
 func validateManagement(m *Management) error {
 	if m == nil {
 		return nil
 	}
 	if m.ManagerCN == "" {
 		return errors.New("config: management.manager_cn: required when management is set")
-	}
-	if m.TrustPEM == "" {
-		return errors.New("config: management.trust_pem: required when management is set")
 	}
 	return nil
 }

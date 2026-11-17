@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1054,6 +1055,22 @@ type auditDetailsKey struct{}
 // audit entry (AuditEvent.details). The request digest already binds every
 // field; this is for the few a reader of the log needs to see directly. A
 // context not created by unaryAudit makes it a no-op.
+// auditFailure records, in the call's audit entry, why the call failed: the
+// status message of err, cut to audit.MaxDetailError bytes at a character
+// boundary.
+func auditFailure(ctx context.Context, err error) {
+	msg := status.Convert(err).Message()
+	if len(msg) > audit.MaxDetailError {
+		msg = msg[:audit.MaxDetailError]
+		for len(msg) > 0 && !utf8.ValidString(msg) {
+			msg = msg[:len(msg)-1]
+		}
+	}
+	if msg != "" {
+		setAuditDetail(ctx, audit.DetailError, msg)
+	}
+}
+
 func setAuditDetail(ctx context.Context, key, value string) {
 	if details, ok := ctx.Value(auditDetailsKey{}).(map[string]string); ok {
 		details[key] = value

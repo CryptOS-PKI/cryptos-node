@@ -36,7 +36,14 @@ import (
 // servers leave ConfigStore nil, so SetManagement returns Unimplemented
 // there, matching the other running-node-only RPCs. A node with no persisted
 // config yet has nothing to merge into and returns FailedPrecondition.
-func (s *Server) SetManagement(ctx context.Context, req *nodev1.SetManagementRequest) (*nodev1.SetManagementResponse, error) {
+func (s *Server) SetManagement(ctx context.Context, req *nodev1.SetManagementRequest) (_ *nodev1.SetManagementResponse, retErr error) {
+	// The Fleet Manager reports a masked error to the operator, so the node's
+	// own audit entry carries the reason a refused call was refused.
+	defer func() {
+		if retErr != nil {
+			auditFailure(ctx, retErr)
+		}
+	}()
 	if s.cfg.ConfigStore == nil {
 		return nil, status.Error(codes.Unimplemented, "SetManagement not available in maintenance mode")
 	}
